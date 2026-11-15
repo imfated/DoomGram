@@ -55,18 +55,30 @@ jobs:
           EOF
           cat build-input/configuration.json
 
-      # Fake profiles expire 2026-10-30. Editing the CMS blob in place breaks
-      # its signature (Make.py runs openssl -verify), so instead: extract the
-      # plist, bump the date, and re-sign the envelope with a throwaway cert.
-      - name: Refresh fake profile dates
+      # Signing needs the fake identity in a keychain (rules_apple matches it
+      # against the cert embedded in each profile), and the fake profiles expire
+      # 2026-10-30. So: import SelfSigned.p12 into a persistent keychain, then
+      # re-sign every profile with that identity after bumping ExpirationDate
+      # (mirrors build-system/Make/GenerateProfiles.py).
+      - name: Setup signing identity and refresh profiles
         run: |
           set -e
+          KEYCHAIN=build.keychain
+          KEYCHAIN_PASSWORD=temp123
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security import build-system/fake-codesigning/certs/SelfSigned.p12 -k "$KEYCHAIN" -P "" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          IDENTITY=$(openssl pkcs12 -in build-system/fake-codesigning/certs/SelfSigned.p12 -passin pass: -nokeys -legacy | openssl x509 -noout -subject -nameopt oneline | sed -n 's/.*CN *= *//p' | cut -d, -f1)
+          echo "Signing identity: $IDENTITY"
           cd build-system/fake-codesigning/profiles
-          openssl req -x509 -newkey rsa:2048 -keyout /tmp/giftcam-key.pem -out /tmp/giftcam-cert.pem -days 365 -nodes -subj "/CN=GiftCam Fake Signing"
           for f in *.mobileprovision; do
-            openssl smime -inform der -verify -noverify -in "$f" -out /tmp/giftcam-profile.plist
-            perl -pi -e 's/2026-10-30T17:06:30/2027-10-30T17:06:30/g' /tmp/giftcam-profile.plist
-            openssl smime -sign -binary -nodetach -in /tmp/giftcam-profile.plist -signer /tmp/giftcam-cert.pem -inkey /tmp/giftcam-key.pem -outform der -out "$f"
+            security cms -D -i "$f" -o /tmp/giftcam-profile.plist
+            plutil -replace ExpirationDate -date "2027-10-30T17:06:30Z" /tmp/giftcam-profile.plist
+            plutil -remove DER-Encoded-Profile /tmp/giftcam-profile.plist || true
+            security cms -S -k "$KEYCHAIN" -N "$IDENTITY" -i /tmp/giftcam-profile.plist -o "$f"
           done
 
       # Persist the Bazel disk cache between runs so rebuilds after small
