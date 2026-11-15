@@ -1,3 +1,19 @@
+diff --git a/build-system/Make/Make.py b/build-system/Make/Make.py
+index 08b05ae..08f0e37 100644
+--- a/build-system/Make/Make.py
++++ b/build-system/Make/Make.py
+@@ -108,6 +108,11 @@ class BazelCommandLine:
+             # Strip unsused code.
+             '--features=dead_strip',
+             '--objc_enable_binary_stripping',
++
++            # GIFTCAM: work around a SIL ownership verifier crash (OSSACompleteLifetime)
++            # in the Xcode 26.6 swiftc on availability-boundary code paths.
++            '--swiftcopt=-Xfrontend',
++            '--swiftcopt=-disable-sil-ownership-verifier',
+         ]
+ 
+     def set_lock(self, lock):
 diff --git a/submodules/Display/Source/ReservedArea.swift b/submodules/Display/Source/ReservedArea.swift
 index 3fb1a99..bcf238d 100644
 --- a/submodules/Display/Source/ReservedArea.swift
