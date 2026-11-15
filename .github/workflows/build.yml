@@ -1,109 +1,73 @@
-name: CI
+name: Build GiftCam IPA
 
 on:
-  push:
-    branches: [ master ]
-
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-13
+    runs-on: macos-26
+    timeout-minutes: 180
 
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          submodules: 'recursive'
-          fetch-depth: '0'
+          submodules: false
+          fetch-depth: 1
 
-      - name: Set active Xcode path
+      # Forks break relative submodule URLs (../foo.git -> imfated/foo.git),
+      # so point them back at the TelegramMessenger org before init.
+      - name: Init submodules
         run: |
-          XCODE_VERSION=$(cat versions.json | python3 -c 'import json,sys;obj=json.load(sys.stdin);print(obj["xcode"]);')
-          sudo xcode-select -s /Applications/Xcode_$XCODE_VERSION.app/Contents/Developer
+          sed -i '' 's|url=\.\./|url=https://github.com/TelegramMessenger/|g' .gitmodules
+          git submodule sync --recursive
+          git submodule update --init --recursive --depth 1
 
-      - name: Create canonical source directory
+      - name: Apply GiftCam patches
+        run: git apply patches/*.patch
+
+      - name: Select latest Xcode
         run: |
-          set -x
-          sudo mkdir -p /Users/Shared
-          cp -R $GITHUB_WORKSPACE /Users/Shared/
-          mv /Users/Shared/$(basename $GITHUB_WORKSPACE) /Users/Shared/telegram-ios
+          XCODE_PATH=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Using $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
+          xcodebuild -version
 
-      - name: Build the App
+      - name: Free disk space
         run: |
-          set -x
+          sudo rm -rf /Applications/Xcode_1*.app || true
+          sudo rm -rf "$ANDROID_HOME" /usr/local/share/dotnet ~/Library/Android || true
+          df -h /
 
-          # source code paths are included in the final binary, so we need to make them stable across builds
-          SOURCE_DIR=/Users/Shared/telegram-ios
+      - name: Generate configuration
+        env:
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        run: |
+          mkdir -p build-input
+          RAND=$(openssl rand -hex 8)
+          TEAM="${TEAM_ID:-XXXXXXXXXX}"
+          cat > build-input/configuration.json <<EOF
+          {"bundle_id":"org.${RAND}.Telegram","api_id":${API_ID},"api_hash":"${API_HASH}","team_id":"${TEAM}","is_internal_build":true,"is_appstore_build":false,"appstore_id":0,"app_specific_url_scheme":"tg","premium_iap_product_id":"","enable_siri":false,"enable_icloud":false}
+          EOF
+          cat build-input/configuration.json
 
-          # use canonical bazel root
-          BAZEL_USER_ROOT="/private/var/tmp/_bazel_containerhost"
-
-          cd $SOURCE_DIR
-
-          BUILD_NUMBER_OFFSET="$(cat build_number_offset)"
-
-          export APP_VERSION=$(cat versions.json | python3 -c 'import json,sys;obj=json.load(sys.stdin);print(obj["app"]);')
-          export COMMIT_COUNT=$(git rev-list --count HEAD)
-          export COMMIT_COUNT="$(($COMMIT_COUNT+$BUILD_NUMBER_OFFSET))"
-          export BUILD_NUMBER="$COMMIT_COUNT"
-          echo "BUILD_NUMBER=$(echo $BUILD_NUMBER)" >> $GITHUB_ENV
-          echo "APP_VERSION=$(echo $APP_VERSION)" >> $GITHUB_ENV
-
-          python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
-          python3 -u build-system/Make/Make.py \
-            --bazelUserRoot="$BAZEL_USER_ROOT" \
+      - name: Build IPA
+        run: |
+          python3 build-system/Make/Make.py \
+            --cacheDir="$RUNNER_TEMP/tg-bazel-cache" \
+            --overrideXcodeVersion \
             build \
-            --configurationPath="build-system/appstore-configuration.json" \
+            --configurationPath=build-input/configuration.json \
             --codesigningInformationPath=build-system/fake-codesigning \
             --configuration=release_arm64 \
-            --buildNumber="$BUILD_NUMBER"
+            --buildNumber=${{ github.run_number }} \
+            --outputBuildArtifactsPath=build-output
 
-          # collect ipa
-          OUTPUT_PATH="build/artifacts"
-          rm -rf "$OUTPUT_PATH"
-          mkdir -p "$OUTPUT_PATH"
-          for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa; do
-            cp "$f" $OUTPUT_PATH/
-          done
-
-          # collect dsym
-          mkdir -p build/DSYMs
-          for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/*.dSYM; do
-            cp -R "$f" build/DSYMs/
-          done
-          zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload IPA
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: build-${{ env.BUILD_NUMBER }}
-          release_name: Telegram ${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }})
-          body: |
-            An unsigned build of Telegram for iOS ${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }})
-          draft: false
-          prerelease: false
-
-      - name: Upload Release IPA
-        id: upload-release-ipa 
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /Users/Shared/telegram-ios/build/artifacts/Telegram.ipa
-          asset_name: Telegram.ipa
-          asset_content_type: application/zip
-
-      - name: Upload Release DSYM
-        id: upload-release-dsym 
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /Users/Shared/telegram-ios/build/artifacts/Telegram.DSYMs.zip
-          asset_name: Telegram.DSYMs.zip
-          asset_content_type: application/zip
+          name: GiftCam-IPA
+          path: build-output/**/*.ipa

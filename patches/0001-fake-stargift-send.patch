@@ -1,0 +1,97 @@
+﻿diff --git a/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift b/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift
+index e1624f6..ae4df63 100644
+--- a/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift
++++ b/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift
+@@ -3,6 +3,7 @@ import UIKit
+ import Display
+ import AsyncDisplayKit
+ import SwiftSignalKit
++import Postbox
+ import TelegramCore
+ import TelegramNotices
+ import TelegramPresentationData
+@@ -552,27 +553,70 @@ private final class GiftSetupScreenComponent: Component {
+                 
+                 let completion = component.completion
+                 
+-                let signal = BotCheckoutController.InputData.fetch(context: component.context, source: source)
+-                |> `catch` { error -> Signal<BotCheckoutController.InputData, SendBotPaymentFormError> in
+-                    switch error {
+-                    case .disallowedStarGifts:
+-                        return .fail(.disallowedStarGift)
+-                    case .starGiftsUserLimit:
+-                        return .fail(.starGiftUserLimit)
+-                    default:
+-                        return .fail(.generic)
++                let signal: Signal<SendBotPaymentResult, SendBotPaymentFormError>
++                if case .starGift = component.subject {
++                    // GIFTCAM: fake local send тАФ no server request, instant success
++                    signal = Signal<SendBotPaymentResult, SendBotPaymentFormError>.single(.done(receiptMessageId: nil, subscriptionPeerId: nil, uniqueStarGift: nil))
++                    |> delay(0.7, queue: Queue.mainQueue())
++                } else {
++                    signal = BotCheckoutController.InputData.fetch(context: component.context, source: source)
++                    |> `catch` { error -> Signal<BotCheckoutController.InputData, SendBotPaymentFormError> in
++                        switch error {
++                        case .disallowedStarGifts:
++                            return .fail(.disallowedStarGift)
++                        case .starGiftsUserLimit:
++                            return .fail(.starGiftUserLimit)
++                        default:
++                            return .fail(.generic)
++                        }
+                     }
++                    |> mapToSignal { inputData -> Signal<SendBotPaymentResult, SendBotPaymentFormError> in
++                        return component.context.engine.payments.sendStarsPaymentForm(formId: inputData.form.id, source: source)
++                    }
++                    |> deliverOnMainQueue
+                 }
+-                |> mapToSignal { inputData -> Signal<SendBotPaymentResult, SendBotPaymentFormError> in
+-                    return component.context.engine.payments.sendStarsPaymentForm(formId: inputData.form.id, source: source)
+-                }
+-                |> deliverOnMainQueue
+                                 
+                 let _ = signal.start(next: { [weak self] result in
+                     guard let self, let controller = self.environment?.controller(), let navigationController = controller.navigationController as? NavigationController else {
+                         return
+                     }
+-                    
++
++                    // GIFTCAM: insert a local fake gift message so the chat renders the real bubble and plays the outgoing gift animation
++                    if case let .starGift(starGift, _) = component.subject, peerId.namespace == Namespaces.Peer.CloudUser {
++                        let giftText: String? = textInputText.string.isEmpty ? nil : textInputText.string
++                        let giftEntities: [MessageTextEntity]? = giftText == nil ? nil : entities
++                        let randomId = Int64.random(in: 1 ... Int64.max)
++                        let timestamp = Int32(clamping: Int64(Date().timeIntervalSince1970))
++                        let _ = (component.context.account.postbox.transaction { transaction -> Void in
++                            let action = TelegramMediaAction(action: .starGift(
++                                gift: .generic(starGift),
++                                convertStars: starGift.convertStars,
++                                text: giftText,
++                                entities: giftEntities,
++                                nameHidden: self.hideName,
++                                savedToProfile: false,
++                                converted: false,
++                                upgraded: false,
++                                canUpgrade: starGift.upgradeStars != nil,
++                                upgradeStars: starGift.upgradeStars,
++                                isRefunded: false,
++                                isPrepaidUpgrade: false,
++                                upgradeMessageId: nil,
++                                peerId: peerId,
++                                senderId: nil,
++                                savedId: nil,
++                                prepaidUpgradeHash: nil,
++                                giftMessageId: nil,
++                                upgradeSeparate: false,
++                                isAuctionAcquired: false,
++                                toPeerId: nil,
++                                number: nil
++                            ))
++                            let message = StoreMessage(peerId: peerId, namespace: Namespaces.Message.Local, customStableId: nil, globallyUniqueId: randomId, groupingKey: nil, threadId: nil, timestamp: timestamp, flags: [], tags: [], globalTags: [], localTags: [], forwardInfo: nil, authorId: component.context.account.peerId, text: "", attributes: [], media: [action])
++                            let _ = transaction.addMessages([message], location: .Random)
++                        }).start()
++                    }
++
+                     let complete: () -> Void = {
+                         if let completion {
+                             completion()
