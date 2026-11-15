@@ -53,6 +53,11 @@ jobs:
           EOF
           cat build-input/configuration.json
 
+      # Fake profiles all expire 2026-10-30; bump the ASCII date inside the
+      # CMS blobs one year ahead (signature is never verified for fake signing).
+      - name: Refresh fake profile dates
+        run: perl -pi -e 's/2026-10-30T17:06:30/2027-10-30T17:06:30/g' build-system/fake-codesigning/profiles/*.mobileprovision
+
       - name: Build IPA
         run: |
           python3 build-system/Make/Make.py \
