@@ -1,23 +1,27 @@
 diff --git a/submodules/Postbox/AllowedImporters.txt b/submodules/Postbox/AllowedImporters.txt
-index 17291fb..a7be5e3 100644
+index 17291fb..ab47267 100644
 --- a/submodules/Postbox/AllowedImporters.txt
 +++ b/submodules/Postbox/AllowedImporters.txt
-@@ -95,3 +95,5 @@ submodules/TelegramUniversalVideoContent/Sources/SystemVideoContent.swift
- submodules/TelegramUniversalVideoContent/Sources/WebEmbedVideoContent.swift
- submodules/TemporaryCachedPeerDataManager/Sources/ChannelMemberCategoryListContext.swift
- submodules/TemporaryCachedPeerDataManager/Sources/PeerChannelMemberCategoriesContextsManager.swift
-+
+@@ -65,6 +65,7 @@ submodules/TelegramUI/Components/EmojiStatusComponent/Sources/EmojiStatusCompone
+ submodules/TelegramUI/Components/EmojiTextAttachmentView/Sources/EmojiTextAttachmentView.swift
+ submodules/TelegramUI/Components/EntityKeyboard/Sources/EmojiPagerContentSignals.swift
+ submodules/TelegramUI/Components/EntityKeyboard/Sources/InlineFileIconLayer.swift
 +submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift
+ submodules/TelegramUI/Components/MediaEditor/Sources/MediaEditorComposer.swift
+ submodules/TelegramUI/Components/MediaEditor/Sources/MediaEditorComposerEntity.swift
+ submodules/TelegramUI/Components/MediaEditor/Sources/MediaEditorDraft.swift
 diff --git a/submodules/Postbox/AllowedPostboxAccess.txt b/submodules/Postbox/AllowedPostboxAccess.txt
-index bab90e6..f11da9b 100644
+index bab90e6..ff61e5c 100644
 --- a/submodules/Postbox/AllowedPostboxAccess.txt
 +++ b/submodules/Postbox/AllowedPostboxAccess.txt
-@@ -242,3 +242,5 @@ submodules/TranslateUI/Sources/ChatTranslation.swift
- submodules/UndoUI/Sources/UndoOverlayControllerNode.swift
- submodules/WallpaperBackgroundNode/Sources/WallpaperBackgroundNode.swift
- submodules/WallpaperResources/Sources/WallpaperResources.swift
-+
+@@ -153,6 +153,7 @@ submodules/TelegramUI/Components/EntityKeyboard/Sources/EmojiSearchContent.swift
+ submodules/TelegramUI/Components/EntityKeyboard/Sources/InlineFileIconLayer.swift
+ submodules/TelegramUI/Components/GifVideoLayer/Sources/GifVideoLayer.swift
+ submodules/TelegramUI/Components/Gifts/GiftItemComponent/Sources/GiftItemComponent.swift
 +submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift
+ submodules/TelegramUI/Components/GlobalControlPanelsContext/Sources/GlobalControlPanelsContext.swift
+ submodules/TelegramUI/Components/ListComposePollOptionComponent/Sources/ListComposePollOptionComponent.swift
+ submodules/TelegramUI/Components/MediaEditor/Sources/MediaEditor.swift
 diff --git a/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift b/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift
 index e1624f6..ae4df63 100644
 --- a/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift
