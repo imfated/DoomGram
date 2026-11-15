@@ -53,10 +53,19 @@ jobs:
           EOF
           cat build-input/configuration.json
 
-      # Fake profiles all expire 2026-10-30; bump the ASCII date inside the
-      # CMS blobs one year ahead (signature is never verified for fake signing).
+      # Fake profiles expire 2026-10-30. Editing the CMS blob in place breaks
+      # its signature (Make.py runs openssl -verify), so instead: extract the
+      # plist, bump the date, and re-sign the envelope with a throwaway cert.
       - name: Refresh fake profile dates
-        run: perl -pi -e 's/2026-10-30T17:06:30/2027-10-30T17:06:30/g' build-system/fake-codesigning/profiles/*.mobileprovision
+        run: |
+          set -e
+          cd build-system/fake-codesigning/profiles
+          openssl req -x509 -newkey rsa:2048 -keyout /tmp/giftcam-key.pem -out /tmp/giftcam-cert.pem -days 365 -nodes -subj "/CN=GiftCam Fake Signing"
+          for f in *.mobileprovision; do
+            openssl smime -inform der -verify -noverify -in "$f" -out /tmp/giftcam-profile.plist
+            perl -pi -e 's/2026-10-30T17:06:30/2027-10-30T17:06:30/g' /tmp/giftcam-profile.plist
+            openssl smime -sign -binary -nodetach -in /tmp/giftcam-profile.plist -signer /tmp/giftcam-cert.pem -inkey /tmp/giftcam-key.pem -outform der -out "$f"
+          done
 
       - name: Build IPA
         run: |
