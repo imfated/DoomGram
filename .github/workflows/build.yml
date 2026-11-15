@@ -69,6 +69,15 @@ jobs:
             openssl smime -sign -binary -nodetach -in /tmp/giftcam-profile.plist -signer /tmp/giftcam-cert.pem -inkey /tmp/giftcam-key.pem -outform der -out "$f"
           done
 
+      # Persist the Bazel disk cache between runs so rebuilds after small
+      # changes only recompile touched modules instead of all ~10k actions.
+      - name: Restore Bazel cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/tg-bazel-cache
+          key: bazel-${{ hashFiles('versions.json') }}-${{ github.sha }}
+          restore-keys: bazel-${{ hashFiles('versions.json') }}-
+
       - name: Build IPA
         run: |
           python3 build-system/Make/Make.py \
