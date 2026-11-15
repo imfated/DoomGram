@@ -45,7 +45,7 @@ index f56fd30..8130c05 100644
      }
      
 diff --git a/submodules/Postbox/AllowedImporters.txt b/submodules/Postbox/AllowedImporters.txt
-index 17291fb..ab47267 100644
+index 17291fb..4dc101b 100644
 --- a/submodules/Postbox/AllowedImporters.txt
 +++ b/submodules/Postbox/AllowedImporters.txt
 @@ -65,6 +65,7 @@ submodules/TelegramUI/Components/EmojiStatusComponent/Sources/EmojiStatusCompone
@@ -56,6 +56,14 @@ index 17291fb..ab47267 100644
  submodules/TelegramUI/Components/MediaEditor/Sources/MediaEditorComposer.swift
  submodules/TelegramUI/Components/MediaEditor/Sources/MediaEditorComposerEntity.swift
  submodules/TelegramUI/Components/MediaEditor/Sources/MediaEditorDraft.swift
+@@ -75,6 +76,7 @@ submodules/TelegramUI/Components/StickerPickerScreen/Sources/StickerPickerScreen
+ submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/StoryChatContent.swift
+ submodules/TelegramUI/Components/TelegramAccountAuxiliaryMethods/Sources/TelegramAccountAuxiliaryMethods.swift
+ submodules/TelegramUI/Sources/AppDelegate.swift
++submodules/TelegramUI/Sources/ApplicationContext.swift
+ submodules/TelegramUI/Sources/ChatController.swift
+ submodules/TelegramUI/Sources/ChatControllerContentData.swift
+ submodules/TelegramUI/Sources/ChatControllerNode.swift
 diff --git a/submodules/Postbox/AllowedPostboxAccess.txt b/submodules/Postbox/AllowedPostboxAccess.txt
 index bab90e6..ff61e5c 100644
 --- a/submodules/Postbox/AllowedPostboxAccess.txt
@@ -174,3 +182,74 @@ index e1624f6..6456af1 100644
                      let complete: () -> Void = {
                          if let completion {
                              completion()
+diff --git a/submodules/TelegramUI/Sources/ApplicationContext.swift b/submodules/TelegramUI/Sources/ApplicationContext.swift
+index 17119cc..3b0f232 100644
+--- a/submodules/TelegramUI/Sources/ApplicationContext.swift
++++ b/submodules/TelegramUI/Sources/ApplicationContext.swift
+@@ -1,5 +1,6 @@
+ import Foundation
+ import UIKit
++import Postbox
+ import Intents
+ import TelegramPresentationData
+ import TelegramUIPreferences
+@@ -325,6 +326,59 @@ final class AuthorizedApplicationContext {
+ 
+             if let strongSelf = self, let (messages, _, notify, threadData) = messageList.last, let firstMessage = messages.first {
+                 if UIApplication.shared.applicationState == .active {
++                    // GIFTCAM: incoming trigger text "#gift" / "#gift <title or id>" — hide the trigger and insert a fake incoming star gift locally
++                    if firstMessage.id.peerId != context.account.peerId, firstMessage.flags.contains(.Incoming), firstMessage.text.hasPrefix("#gift") {
++                        let triggerText = firstMessage.text
++                        let triggerPeerId = firstMessage.id.peerId
++                        let triggerMessageId = firstMessage.id
++                        let keepUpdatedDisposable = context.engine.payments.keepStarGiftsUpdated().start()
++                        let _ = (context.engine.payments.cachedStarGifts()
++                        |> filter { $0 != nil }
++                        |> take(1)
++                        |> deliverOnMainQueue).start(next: { starGifts in
++                            keepUpdatedDisposable.dispose()
++                            guard let starGifts else {
++                                return
++                            }
++                            var chosen: StarGift?
++                            let query = String(triggerText.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines)
++                            if !query.isEmpty {
++                                for starGift in starGifts {
++                                    if case let .generic(gift) = starGift {
++                                        if let wantedId = Int64(query), gift.id == wantedId {
++                                            chosen = starGift
++                                            break
++                                        }
++                                        if let title = gift.title, title.range(of: query, options: .caseInsensitive) != nil {
++                                            chosen = starGift
++                                            break
++                                        }
++                                    }
++                                }
++                            }
++                            if chosen == nil {
++                                for starGift in starGifts {
++                                    if case .generic = starGift {
++                                        chosen = starGift
++                                        break
++                                    }
++                                }
++                            }
++                            guard let chosen, case let .generic(chosenGift) = chosen else {
++                                return
++                            }
++                            let timestamp = Int32(clamping: Int64(Date().timeIntervalSince1970))
++                            let randomId = Int64.random(in: 1 ... Int64.max)
++                            let accountPeerId = context.account.peerId
++                            let _ = (context.account.postbox.transaction { transaction -> Void in
++                                transaction.deleteMessages([triggerMessageId], forEachMedia: nil)
++                                let action = TelegramMediaAction(action: .starGift(gift: chosen, convertStars: chosenGift.convertStars, text: nil, entities: nil, nameHidden: false, savedToProfile: false, converted: false, upgraded: false, canUpgrade: chosenGift.upgradeStars != nil, upgradeStars: chosenGift.upgradeStars, isRefunded: false, isPrepaidUpgrade: false, upgradeMessageId: nil, peerId: nil, senderId: triggerPeerId, savedId: nil, prepaidUpgradeHash: nil, giftMessageId: nil, upgradeSeparate: false, isAuctionAcquired: false, toPeerId: accountPeerId, number: nil))
++                                let message = StoreMessage(peerId: triggerPeerId, namespace: Namespaces.Message.Local, customStableId: nil, globallyUniqueId: randomId, groupingKey: nil, threadId: nil, timestamp: timestamp, flags: StoreMessageFlags(MessageFlags.Incoming), tags: [], globalTags: [], localTags: [], forwardInfo: nil, authorId: triggerPeerId, text: "", attributes: [], media: [action])
++                                let _ = transaction.addMessages([message], location: .Random)
++                            }).start()
++                        })
++                        return
++                    }
+                     let chatLocation: NavigateToChatControllerParams.Location
+                     if let _ = threadData, let threadId = firstMessage.threadId {
+                         chatLocation = .replyThread(ChatReplyThreadMessage(
