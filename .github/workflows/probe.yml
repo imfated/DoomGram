@@ -1,0 +1,10 @@
+name: Probe runners
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: macos-27
+    steps:
+      - run: |
+          sw_vers
+          ls /Applications | grep -i xcode
+          xcodebuild -version
