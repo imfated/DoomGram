@@ -1,5 +1,5 @@
 diff --git a/build-system/Make/Make.py b/build-system/Make/Make.py
-index 08b05ae..08f0e37 100644
+index 08b05ae..0afa359 100644
 --- a/build-system/Make/Make.py
 +++ b/build-system/Make/Make.py
 @@ -108,6 +108,11 @@ class BazelCommandLine:
@@ -9,8 +9,8 @@ index 08b05ae..08f0e37 100644
 +
 +            # GIFTCAM: work around a SIL ownership verifier crash (OSSACompleteLifetime)
 +            # in the Xcode 26.6 swiftc on availability-boundary code paths.
-+            '--swiftcopt=-Xfrontend',
-+            '--swiftcopt=-disable-sil-ownership-verifier',
++            '--@build_bazel_rules_swift//swift:copt=-Xfrontend',
++            '--@build_bazel_rules_swift//swift:copt=-disable-sil-ownership-verifier',
          ]
  
      def set_lock(self, lock):
