@@ -23,7 +23,7 @@ index bab90e6..ff61e5c 100644
  submodules/TelegramUI/Components/ListComposePollOptionComponent/Sources/ListComposePollOptionComponent.swift
  submodules/TelegramUI/Components/MediaEditor/Sources/MediaEditor.swift
 diff --git a/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift b/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift
-index e1624f6..ae4df63 100644
+index e1624f6..6456af1 100644
 --- a/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift
 +++ b/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift
 @@ -3,6 +3,7 @@ import UIKit
@@ -34,7 +34,7 @@ index e1624f6..ae4df63 100644
  import TelegramCore
  import TelegramNotices
  import TelegramPresentationData
-@@ -552,27 +553,70 @@ private final class GiftSetupScreenComponent: Component {
+@@ -552,27 +553,79 @@ private final class GiftSetupScreenComponent: Component {
                  
                  let completion = component.completion
                  
@@ -81,11 +81,20 @@ index e1624f6..ae4df63 100644
 -                    
 +
 +                    // GIFTCAM: insert a local fake gift message so the chat renders the real bubble and plays the outgoing gift animation
++                    // GIFTCAM: "#in" prefix in the gift text fakes an INCOMING gift from the chat peer instead (recipient-side video)
 +                    if case let .starGift(starGift, _) = component.subject, peerId.namespace == Namespaces.Peer.CloudUser {
-+                        let giftText: String? = textInputText.string.isEmpty ? nil : textInputText.string
-+                        let giftEntities: [MessageTextEntity]? = giftText == nil ? nil : entities
++                        var isIncomingFake = false
++                        var rawText = textInputText.string
++                        if rawText.hasPrefix("#in") {
++                            isIncomingFake = true
++                            rawText = String(rawText.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
++                        }
++                        let giftText: String? = rawText.isEmpty ? nil : rawText
++                        let giftEntities: [MessageTextEntity]? = (giftText == nil || isIncomingFake) ? nil : entities
 +                        let randomId = Int64.random(in: 1 ... Int64.max)
 +                        let timestamp = Int32(clamping: Int64(Date().timeIntervalSince1970))
++                        let messageAuthorId = isIncomingFake ? peerId : component.context.account.peerId
++                        let messageFlags: StoreMessageFlags = isIncomingFake ? StoreMessageFlags(MessageFlags.Incoming) : []
 +                        let _ = (component.context.account.postbox.transaction { transaction -> Void in
 +                            let action = TelegramMediaAction(action: .starGift(
 +                                gift: .generic(starGift),
@@ -111,7 +120,7 @@ index e1624f6..ae4df63 100644
 +                                toPeerId: nil,
 +                                number: nil
 +                            ))
-+                            let message = StoreMessage(peerId: peerId, namespace: Namespaces.Message.Local, customStableId: nil, globallyUniqueId: randomId, groupingKey: nil, threadId: nil, timestamp: timestamp, flags: [], tags: [], globalTags: [], localTags: [], forwardInfo: nil, authorId: component.context.account.peerId, text: "", attributes: [], media: [action])
++                            let message = StoreMessage(peerId: peerId, namespace: Namespaces.Message.Local, customStableId: nil, globallyUniqueId: randomId, groupingKey: nil, threadId: nil, timestamp: timestamp, flags: messageFlags, tags: [], globalTags: [], localTags: [], forwardInfo: nil, authorId: messageAuthorId, text: "", attributes: [], media: [action])
 +                            let _ = transaction.addMessages([message], location: .Random)
 +                        }).start()
 +                    }
