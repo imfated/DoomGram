@@ -1,3 +1,35 @@
+diff --git a/submodules/Display/Source/ReservedArea.swift b/submodules/Display/Source/ReservedArea.swift
+index 3fb1a99..3698aac 100644
+--- a/submodules/Display/Source/ReservedArea.swift
++++ b/submodules/Display/Source/ReservedArea.swift
+@@ -160,9 +160,11 @@ var iPhoneDuoSystemReportIsSettled: Bool {
+ /// The frames of the occlusion regions the system reports as active in `view` (iPhone Duo's status corner and its
+ /// camera), in the view's coordinates. Empty before iOS 27.1.
+ func activeOcclusionFrames(in view: UIView) -> [CGRect] {
++#if compiler(>=6.3)
+     if #available(iOS 27.1, *) {
+         return view.reservedRegions(kind: .occlusion).filter(\.isActive).map(\.frame)
+     }
++#endif
+     return []
+ }
+ 
+diff --git a/submodules/Display/Source/WindowContent.swift b/submodules/Display/Source/WindowContent.swift
+index f56fd30..834d2a7 100644
+--- a/submodules/Display/Source/WindowContent.swift
++++ b/submodules/Display/Source/WindowContent.swift
+@@ -292,9 +292,11 @@ public final class WindowHostView {
+     /// Multi-display devices only: the fold while the system reports it active, in `eventView`
+     /// coordinates. Nil before iOS 27.1.
+     fileprivate var activeDivision: CGRect? {
++#if compiler(>=6.3)
+         if #available(iOS 27.1, *) {
+             return self.eventView.reservedRegions(kind: .division).first(where: \.isActive)?.frame
+         }
++#endif
+         return nil
+     }
+     
 diff --git a/submodules/Postbox/AllowedImporters.txt b/submodules/Postbox/AllowedImporters.txt
 index 17291fb..ab47267 100644
 --- a/submodules/Postbox/AllowedImporters.txt
