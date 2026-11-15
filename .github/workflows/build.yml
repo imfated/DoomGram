@@ -48,8 +48,10 @@ jobs:
           API_HASH: ${{ secrets.API_HASH }}
         run: |
           mkdir -p build-input
+          # NB: is_internal_build/is_appstore_build must be JSON strings ("true"/"false"),
+          # while enable_siri/enable_icloud must be JSON booleans — see appstore-configuration.json.
           cat > build-input/configuration.json <<EOF
-          {"bundle_id":"ph.telegra.Telegraph","api_id":${API_ID},"api_hash":"${API_HASH}","team_id":"C67CF9S4VU","is_internal_build":true,"is_appstore_build":false,"appstore_id":0,"app_specific_url_scheme":"tg","premium_iap_product_id":"","enable_siri":false,"enable_icloud":false}
+          {"bundle_id":"ph.telegra.Telegraph","api_id":"${API_ID}","api_hash":"${API_HASH}","team_id":"C67CF9S4VU","is_internal_build":"true","is_appstore_build":"false","appstore_id":"0","app_specific_url_scheme":"tg","premium_iap_product_id":"","enable_siri":false,"enable_icloud":false}
           EOF
           cat build-input/configuration.json
 
