@@ -39,17 +39,17 @@ jobs:
           sudo rm -rf "$ANDROID_HOME" /usr/local/share/dotnet ~/Library/Android || true
           df -h /
 
+      # team_id/bundle_id must match the identifiers baked into
+      # build-system/fake-codesigning profiles (C67CF9S4VU.ph.telegra.Telegraph),
+      # otherwise Make.py rejects the profiles (aps-environment check).
       - name: Generate configuration
         env:
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
-          TEAM_ID: ${{ secrets.TEAM_ID }}
         run: |
           mkdir -p build-input
-          RAND=$(openssl rand -hex 8)
-          TEAM="${TEAM_ID:-XXXXXXXXXX}"
           cat > build-input/configuration.json <<EOF
-          {"bundle_id":"org.${RAND}.Telegram","api_id":${API_ID},"api_hash":"${API_HASH}","team_id":"${TEAM}","is_internal_build":true,"is_appstore_build":false,"appstore_id":0,"app_specific_url_scheme":"tg","premium_iap_product_id":"","enable_siri":false,"enable_icloud":false}
+          {"bundle_id":"ph.telegra.Telegraph","api_id":${API_ID},"api_hash":"${API_HASH}","team_id":"C67CF9S4VU","is_internal_build":true,"is_appstore_build":false,"appstore_id":0,"app_specific_url_scheme":"tg","premium_iap_product_id":"","enable_siri":false,"enable_icloud":false}
           EOF
           cat build-input/configuration.json
 
