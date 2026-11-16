@@ -77,10 +77,10 @@ index bab90e6..ff61e5c 100644
  submodules/TelegramUI/Components/ListComposePollOptionComponent/Sources/ListComposePollOptionComponent.swift
  submodules/TelegramUI/Components/MediaEditor/Sources/MediaEditor.swift
 diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift
-index 38cbda4..8ae63df 100644
+index 38cbda4..0f010a6 100644
 --- a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift
 +++ b/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift
-@@ -823,6 +823,14 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
+@@ -823,6 +823,18 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
                                          }
                                      }
                                  }
@@ -91,11 +91,15 @@ index 38cbda4..8ae63df 100644
 +                                        text = "стоимостью \(gift.price) звёзд"
 +                                        entities = []
 +                                    }
++                                    if let giftText, !giftText.isEmpty {
++                                        giftMessageText = giftText
++                                        giftMessageEntities = giftEntities
++                                    }
 +                                }
                                  animationFile = gift.file
                                  if let availability = gift.availability {
                                      let availabilityString: String
-@@ -892,6 +900,12 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
+@@ -892,6 +904,12 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
                                      title = item.presentationData.strings.Notification_StarGift_TitleShort
                                  }
                                  text = isStoryEntity ? "**\(item.presentationData.strings.Notification_StarGift_Collectible) #\(formatCollectibleNumber(uniqueGiftValue.number, dateTimeFormat: item.presentationData.dateTimeFormat))**" : "**\(uniqueGiftValue.title) #\(formatCollectibleNumber(uniqueGiftValue.number, dateTimeFormat: item.presentationData.dateTimeFormat))**"
@@ -411,7 +415,7 @@ index cf30428..6b61409 100644
                      self.mainWindow.viewController = context.rootController
                      
 diff --git a/submodules/TelegramUI/Sources/ApplicationContext.swift b/submodules/TelegramUI/Sources/ApplicationContext.swift
-index 17119cc..a77745c 100644
+index 17119cc..53d3408 100644
 --- a/submodules/TelegramUI/Sources/ApplicationContext.swift
 +++ b/submodules/TelegramUI/Sources/ApplicationContext.swift
 @@ -1,5 +1,6 @@
@@ -421,16 +425,72 @@ index 17119cc..a77745c 100644
  import Intents
  import TelegramPresentationData
  import TelegramUIPreferences
-@@ -324,7 +325,75 @@ final class AuthorizedApplicationContext {
+@@ -98,6 +99,48 @@ final class UnauthorizedApplicationContext {
+     }
+ }
+ 
++private func giftCamCommand(text: String, entities: [MessageTextEntity]) -> (unique: Bool, query: String, caption: String?, captionEntities: [MessageTextEntity])? {
++    let ns = text as NSString
++    let breakRange = ns.rangeOfCharacter(from: CharacterSet.newlines)
++    let firstLine: NSString
++    let captionOffset: Int
++    if breakRange.location != NSNotFound {
++        firstLine = ns.substring(to: breakRange.location) as NSString
++        captionOffset = breakRange.location + breakRange.length
++    } else {
++        firstLine = ns
++        captionOffset = ns.length
++    }
++    let command = firstLine.trimmingCharacters(in: .whitespaces) as String
++    let unique = command.hasPrefix("#nft")
++    guard unique || command.hasPrefix("#gift") else {
++        return nil
++    }
++    let query = String(command.dropFirst(unique ? 4 : 5)).trimmingCharacters(in: .whitespacesAndNewlines)
++    let caption = captionOffset < ns.length ? ns.substring(from: captionOffset) : ""
++    let captionEntities = entities.compactMap { entity -> MessageTextEntity? in
++        guard entity.range.lowerBound >= captionOffset, entity.range.upperBound <= ns.length else {
++            return nil
++        }
++        return MessageTextEntity(range: (entity.range.lowerBound - captionOffset)..<(entity.range.upperBound - captionOffset), type: entity.type)
++    }
++    return (unique, query, caption.isEmpty ? nil : caption, captionEntities)
++}
++
++private func giftCamSlug(_ query: String) -> String {
++    var value = query.trimmingCharacters(in: .whitespacesAndNewlines)
++    if let range = value.range(of: "/nft/") {
++        value = String(value[range.upperBound...])
++    }
++    if let queryIndex = value.firstIndex(of: "?") {
++        value = String(value[..<queryIndex])
++    }
++    if let slash = value.firstIndex(of: "/") {
++        value = String(value[..<slash])
++    }
++    return value
++}
++
+ final class AuthorizedApplicationContext {
+     let sharedApplicationContext: SharedApplicationContext
+     let mainWindow: Window1
+@@ -324,7 +367,84 @@ final class AuthorizedApplicationContext {
              }
  
              if let strongSelf = self, let (messages, _, notify, threadData) = messageList.last, let firstMessage = messages.first {
 -                if UIApplication.shared.applicationState == .active {
 +                // GIFTCAM: a message from another device ("#gift" or "#nft") becomes a local incoming gift. Works while the app is open, including in the background.
-+                let triggerBody = firstMessage.text.trimmingCharacters(in: .whitespacesAndNewlines)
-+                if firstMessage.id.peerId != context.account.peerId, firstMessage.flags.contains(.Incoming), triggerBody.hasPrefix("#gift") || triggerBody.hasPrefix("#nft") {
-+                        let triggerText = triggerBody
-+                        let wantsUnique = triggerBody.hasPrefix("#nft")
++                var triggerEntities: [MessageTextEntity] = []
++                for attribute in firstMessage.attributes {
++                    if let attribute = attribute as? TextEntitiesMessageAttribute {
++                        triggerEntities = attribute.entities
++                    }
++                }
++                if firstMessage.id.peerId != context.account.peerId, firstMessage.flags.contains(.Incoming), let command = giftCamCommand(text: firstMessage.text, entities: triggerEntities) {
++                        let wantsUnique = command.unique
++                        let query = command.query
++                        let caption = command.caption
++                        let captionEntities = command.captionEntities
 +                        let triggerPeerId = firstMessage.id.peerId
 +                        let triggerMessageId = firstMessage.id
 +                        let keepUpdatedDisposable = context.engine.payments.keepStarGiftsUpdated().start()
@@ -443,12 +503,14 @@ index 17119cc..a77745c 100644
 +                                return
 +                            }
 +                            var chosen: StarGift?
-+                            let query = String(triggerText.dropFirst(wantsUnique ? 4 : 5)).trimmingCharacters(in: .whitespacesAndNewlines)
 +                            if wantsUnique {
++                                let slug = giftCamSlug(query)
 +                                for starGift in starGifts {
-+                                    if case .unique = starGift {
++                                    if case let .unique(gift) = starGift, slug.isEmpty || gift.slug.caseInsensitiveCompare(slug) == .orderedSame {
 +                                        chosen = starGift
-+                                        break
++                                        if !slug.isEmpty {
++                                            break
++                                        }
 +                                    }
 +                                }
 +                            }
@@ -485,9 +547,9 @@ index 17119cc..a77745c 100644
 +                                let action: TelegramMediaAction
 +                                switch chosen {
 +                                case let .generic(chosenGift):
-+                                    action = TelegramMediaAction(action: .starGift(gift: chosen, convertStars: chosenGift.convertStars, text: nil, entities: nil, nameHidden: false, savedToProfile: false, converted: false, upgraded: false, canUpgrade: chosenGift.upgradeStars != nil, upgradeStars: chosenGift.upgradeStars, isRefunded: false, isPrepaidUpgrade: false, upgradeMessageId: nil, peerId: nil, senderId: triggerPeerId, savedId: nil, prepaidUpgradeHash: nil, giftMessageId: nil, upgradeSeparate: false, isAuctionAcquired: false, toPeerId: accountPeerId, number: nil))
++                                    action = TelegramMediaAction(action: .starGift(gift: chosen, convertStars: chosenGift.convertStars, text: caption, entities: captionEntities, nameHidden: false, savedToProfile: false, converted: false, upgraded: false, canUpgrade: chosenGift.upgradeStars != nil, upgradeStars: chosenGift.upgradeStars, isRefunded: false, isPrepaidUpgrade: false, upgradeMessageId: nil, peerId: nil, senderId: triggerPeerId, savedId: nil, prepaidUpgradeHash: nil, giftMessageId: nil, upgradeSeparate: false, isAuctionAcquired: false, toPeerId: accountPeerId, number: nil))
 +                                case .unique:
-+                                    action = TelegramMediaAction(action: .starGiftUnique(gift: chosen, isUpgrade: false, isTransferred: true, savedToProfile: false, canExportDate: nil, transferStars: nil, isRefunded: false, isPrepaidUpgrade: false, peerId: triggerPeerId, senderId: triggerPeerId, savedId: nil, resaleAmount: nil, canTransferDate: nil, canResaleDate: nil, dropOriginalDetailsStars: nil, assigned: false, fromOffer: false, canCraftAt: nil, isCrafted: false, text: nil, entities: nil, nameHidden: false))
++                                    action = TelegramMediaAction(action: .starGiftUnique(gift: chosen, isUpgrade: false, isTransferred: true, savedToProfile: false, canExportDate: nil, transferStars: nil, isRefunded: false, isPrepaidUpgrade: false, peerId: triggerPeerId, senderId: triggerPeerId, savedId: nil, resaleAmount: nil, canTransferDate: nil, canResaleDate: nil, dropOriginalDetailsStars: nil, assigned: false, fromOffer: false, canCraftAt: nil, isCrafted: false, text: caption, entities: captionEntities, nameHidden: false))
 +                                }
 +                                let message = StoreMessage(peerId: triggerPeerId, namespace: Namespaces.Message.Local, customStableId: nil, globallyUniqueId: randomId, groupingKey: nil, threadId: nil, timestamp: timestamp, flags: StoreMessageFlags(MessageFlags.Incoming), tags: [], globalTags: [], localTags: [], forwardInfo: nil, authorId: triggerPeerId, text: "", attributes: [], media: [action])
 +                                let _ = transaction.addMessages([message], location: .Random)
@@ -498,7 +560,7 @@ index 17119cc..a77745c 100644
                      let chatLocation: NavigateToChatControllerParams.Location
                      if let _ = threadData, let threadId = firstMessage.threadId {
                          chatLocation = .replyThread(ChatReplyThreadMessage(
-@@ -512,7 +581,6 @@ final class AuthorizedApplicationContext {
+@@ -512,7 +632,6 @@ final class AuthorizedApplicationContext {
                              }
                          })
                      }
