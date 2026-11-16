@@ -3,10 +3,7 @@ workflows:
     name: DoomGram IPA
     max_build_duration: 120
     instance_type: mac_mini_m2
-    environment:
-      vars:
-        # Set API_ID and API_HASH in the Codemagic UI (Environment variables).
-        # They are the values from https://my.telegram.org/apps
+    # Set API_ID and API_HASH in the Codemagic UI before starting the build.
     scripts:
       - name: Submodules
         script: |
