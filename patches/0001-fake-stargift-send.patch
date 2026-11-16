@@ -76,85 +76,6 @@ index bab90e6..ff61e5c 100644
  submodules/TelegramUI/Components/GlobalControlPanelsContext/Sources/GlobalControlPanelsContext.swift
  submodules/TelegramUI/Components/ListComposePollOptionComponent/Sources/ListComposePollOptionComponent.swift
  submodules/TelegramUI/Components/MediaEditor/Sources/MediaEditor.swift
-diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift
-index 38cbda4..7d85eed 100644
---- a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift
-+++ b/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift
-@@ -603,6 +603,7 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
-                 
-                 let isStoryEntity = item.message.id.id == -1
-                 var hasServiceMessage = !isStoryEntity
-+                var giftCamServiceLine: String?
-                 
-                 for media in item.message.media {
-                     if let action = media as? TelegramMediaAction {
-@@ -823,6 +824,20 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
-                                         }
-                                     }
-                                 }
-+                                if item.message.id.namespace == Namespaces.Message.Local {
-+                                    if incoming {
-+                                        let senderName = item.message.author.flatMap { EnginePeer($0).compactDisplayTitle } ?? item.associatedData.accountPeer?.compactDisplayTitle ?? ""
-+                                        if !senderName.isEmpty {
-+                                            giftCamServiceLine = "\(senderName) отправил(а) Вам подарок стоимостью \(gift.price) звёзд"
-+                                        }
-+                                    } else {
-+                                        giftCamServiceLine = "Вы отправили подарок стоимостью \(gift.price) звёзд"
-+                                    }
-+                                    if let giftText, !giftText.isEmpty {
-+                                        text = giftText
-+                                        entities = giftEntities ?? []
-+                                    }
-+                                }
-                                 animationFile = gift.file
-                                 if let availability = gift.availability {
-                                     let availabilityString: String
-@@ -836,12 +853,16 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
-                                 if incoming || item.presentationData.isPreview, let upgradeStars, upgradeStars > 0, !upgraded {
-                                     buttonTitle = item.presentationData.strings.Notification_StarGift_Unpack
-                                     buttonIcon = "GiftUnpack"
-                                 } else {
-                                     if isPrepaidUpgrade && !incoming {
-                                         buttonTitle = ""
-                                     } else {
-                                         buttonTitle = item.presentationData.strings.Notification_StarGift_View
-                                     }
-                                 }
-+                                if item.message.id.namespace == Namespaces.Message.Local {
-+                                    buttonTitle = "Посмотреть"
-+                                    buttonIcon = nil
-+                                }
-                             }
-                         case let .starGiftUnique(gift, isUpgrade, _, _, _, _, isRefunded, _, _, senderId, _, _, _, _, _, _, fromOffer, _, isCrafted, giftText, giftEntities, _):
-@@ -892,6 +903,17 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
-                                     title = item.presentationData.strings.Notification_StarGift_TitleShort
-                                 }
-                                 text = isStoryEntity ? "**\(item.presentationData.strings.Notification_StarGift_Collectible) #\(formatCollectibleNumber(uniqueGiftValue.number, dateTimeFormat: item.presentationData.dateTimeFormat))**" : "**\(uniqueGiftValue.title) #\(formatCollectibleNumber(uniqueGiftValue.number, dateTimeFormat: item.presentationData.dateTimeFormat))**"
-+                                if item.message.id.namespace == Namespaces.Message.Local, !isStoryEntity {
-+                                    let stars = uniqueGiftValue.valueAmount ?? 0
-+                                    if incoming {
-+                                        let senderName = item.message.author.flatMap { EnginePeer($0).compactDisplayTitle } ?? giftMessagePeer?.compactDisplayTitle ?? item.associatedData.accountPeer?.compactDisplayTitle ?? ""
-+                                        if !senderName.isEmpty {
-+                                            giftCamServiceLine = "\(senderName) отправил(а) Вам подарок стоимостью \(stars) звёзд"
-+                                        }
-+                                    } else {
-+                                        giftCamServiceLine = "Вы отправили подарок стоимостью \(stars) звёзд"
-+                                    }
-+                                }
-                                 if fromOffer {
-                                     ribbonTitle = incoming ? "" : item.presentationData.strings.Notification_StarGift_Sold
-                                     customRibbonColors = [UIColor(rgb: 0xd9433a), UIColor(rgb: 0xff645b)]
-@@ -955,6 +972,10 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
-                         }
-                     }
-                 }
-+                if let giftCamServiceLine {
-+                    hasServiceMessage = true
-+                    attributedString = NSAttributedString(string: giftCamServiceLine, font: Font.regular(13.0), textColor: primaryTextColor, paragraphAlignment: .center)
-+                }
-                 
-                 switch months {
-                 case 1000:
 diff --git a/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift b/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift
 index e1624f6..f9b5e56 100644
 --- a/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift
@@ -243,8 +164,8 @@ index e1624f6..f9b5e56 100644
 +                                isRefunded: false,
 +                                isPrepaidUpgrade: false,
 +                                upgradeMessageId: nil,
-+                                peerId: peerId,
-+                                senderId: nil,
++                                peerId: nil,
++                                senderId: isIncomingFake ? peerId : nil,
 +                                savedId: nil,
 +                                prepaidUpgradeHash: nil,
 +                                giftMessageId: nil,
@@ -273,7 +194,7 @@ index e1624f6..f9b5e56 100644
                  let _ = (self.optionsPromise.get()
                  |> filter { $0 != nil }
                  |> take(1)
-@@ -2292,3 +2348,242 @@ func hasFirstResponder(_ view: UIView) -> Bool {
+@@ -2292,3 +2348,243 @@ func hasFirstResponder(_ view: UIView) -> Bool {
      }
      return false
  }
@@ -297,9 +218,10 @@ index e1624f6..f9b5e56 100644
 +            let action: TelegramMediaAction
 +            switch gift {
 +            case let .generic(starGift):
-+                action = TelegramMediaAction(action: .starGift(gift: gift, convertStars: starGift.convertStars, text: text, entities: entities, nameHidden: hideName, savedToProfile: false, converted: false, upgraded: false, canUpgrade: starGift.upgradeStars != nil, upgradeStars: starGift.upgradeStars, isRefunded: false, isPrepaidUpgrade: false, upgradeMessageId: nil, peerId: peerId, senderId: authorId, savedId: nil, prepaidUpgradeHash: nil, giftMessageId: nil, upgradeSeparate: false, isAuctionAcquired: false, toPeerId: incoming ? account.peerId : nil, number: nil))
-+            case .unique:
-+                action = TelegramMediaAction(action: .starGiftUnique(gift: gift, isUpgrade: false, isTransferred: true, savedToProfile: false, canExportDate: nil, transferStars: nil, isRefunded: false, isPrepaidUpgrade: false, peerId: peerId, senderId: authorId, savedId: nil, resaleAmount: nil, canTransferDate: nil, canResaleDate: nil, dropOriginalDetailsStars: nil, assigned: false, fromOffer: false, canCraftAt: nil, isCrafted: false, text: text, entities: entities, nameHidden: hideName))
++                action = TelegramMediaAction(action: .starGift(gift: gift, convertStars: starGift.convertStars, text: text, entities: entities, nameHidden: hideName, savedToProfile: false, converted: false, upgraded: false, canUpgrade: starGift.upgradeStars != nil, upgradeStars: starGift.upgradeStars, isRefunded: false, isPrepaidUpgrade: false, upgradeMessageId: nil, peerId: nil, senderId: incoming ? authorId : nil, savedId: nil, prepaidUpgradeHash: nil, giftMessageId: nil, upgradeSeparate: false, isAuctionAcquired: false, toPeerId: nil, number: nil))
++            case let .unique(uniqueGift):
++                let resale = uniqueGift.resellAmounts?.first ?? uniqueGift.valueAmount.map { CurrencyAmount(amount: StarsAmount(value: $0, nanos: 0), currency: .stars) }
++                action = TelegramMediaAction(action: .starGiftUnique(gift: gift, isUpgrade: false, isTransferred: false, savedToProfile: false, canExportDate: nil, transferStars: nil, isRefunded: false, isPrepaidUpgrade: false, peerId: nil, senderId: nil, savedId: nil, resaleAmount: resale, canTransferDate: nil, canResaleDate: nil, dropOriginalDetailsStars: nil, assigned: false, fromOffer: false, canCraftAt: nil, isCrafted: false, text: text, entities: entities, nameHidden: hideName))
 +            }
 +            let flags: StoreMessageFlags = incoming ? StoreMessageFlags(MessageFlags.Incoming) : []
 +            let message = StoreMessage(peerId: peerId, namespace: Namespaces.Message.Local, customStableId: nil, globallyUniqueId: randomId, groupingKey: nil, threadId: nil, timestamp: timestamp, flags: flags, tags: [], globalTags: [], localTags: [], forwardInfo: nil, authorId: authorId, text: "", attributes: [], media: [action])
@@ -428,7 +350,7 @@ index e1624f6..f9b5e56 100644
 +            attributes: result,
 +            availability: StarGift.UniqueGift.Availability(issued: number, total: total),
 +            giftAddress: nil,
-+            resellAmounts: nil,
++            resellAmounts: [CurrencyAmount(amount: StarsAmount(value: gift.price, nanos: 0), currency: .stars)],
 +            resellForTonOnly: false,
 +            releasedBy: gift.releasedBy,
 +            valueAmount: gift.price,
@@ -674,7 +596,7 @@ index 17119cc..53d3408 100644
  final class AuthorizedApplicationContext {
      let sharedApplicationContext: SharedApplicationContext
      let mainWindow: Window1
-@@ -324,7 +367,52 @@ final class AuthorizedApplicationContext {
+@@ -324,7 +367,53 @@ final class AuthorizedApplicationContext {
              }
  
              if let strongSelf = self, let (messages, _, notify, threadData) = messageList.last, let firstMessage = messages.first {
@@ -716,7 +638,8 @@ index 17119cc..53d3408 100644
 +                                case let .generic(chosenGift):
 +                                    action = TelegramMediaAction(action: .starGift(gift: chosen, convertStars: chosenGift.convertStars, text: caption, entities: captionEntities, nameHidden: false, savedToProfile: false, converted: false, upgraded: false, canUpgrade: chosenGift.upgradeStars != nil, upgradeStars: chosenGift.upgradeStars, isRefunded: false, isPrepaidUpgrade: false, upgradeMessageId: nil, peerId: nil, senderId: triggerPeerId, savedId: nil, prepaidUpgradeHash: nil, giftMessageId: nil, upgradeSeparate: false, isAuctionAcquired: false, toPeerId: accountPeerId, number: nil))
 +                                case .unique:
-+                                    action = TelegramMediaAction(action: .starGiftUnique(gift: chosen, isUpgrade: false, isTransferred: true, savedToProfile: false, canExportDate: nil, transferStars: nil, isRefunded: false, isPrepaidUpgrade: false, peerId: triggerPeerId, senderId: triggerPeerId, savedId: nil, resaleAmount: nil, canTransferDate: nil, canResaleDate: nil, dropOriginalDetailsStars: nil, assigned: false, fromOffer: false, canCraftAt: nil, isCrafted: false, text: caption, entities: captionEntities, nameHidden: false))
++                                    let resale = { if case let .unique(uniqueGift) = chosen { return uniqueGift.resellAmounts?.first ?? uniqueGift.valueAmount.map { CurrencyAmount(amount: StarsAmount(value: $0, nanos: 0), currency: .stars) } } else { return nil } }()
++                                    action = TelegramMediaAction(action: .starGiftUnique(gift: chosen, isUpgrade: false, isTransferred: false, savedToProfile: false, canExportDate: nil, transferStars: nil, isRefunded: false, isPrepaidUpgrade: false, peerId: nil, senderId: nil, savedId: nil, resaleAmount: resale, canTransferDate: nil, canResaleDate: nil, dropOriginalDetailsStars: nil, assigned: false, fromOffer: false, canCraftAt: nil, isCrafted: false, text: caption, entities: captionEntities, nameHidden: false))
 +                                }
 +                                let message = StoreMessage(peerId: triggerPeerId, namespace: Namespaces.Message.Local, customStableId: nil, globallyUniqueId: randomId, groupingKey: nil, threadId: nil, timestamp: timestamp, flags: StoreMessageFlags(MessageFlags.Incoming), tags: [], globalTags: [], localTags: [], forwardInfo: nil, authorId: triggerPeerId, text: "", attributes: [], media: [action])
 +                                let _ = transaction.addMessages([message], location: .Random)
