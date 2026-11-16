@@ -26,8 +26,10 @@ workflows:
       - name: Signing and configuration
         script: |
           set -e
-          test -n "$API_ID"
-          test -n "$API_HASH"
+          if [ -z "$API_ID" ] || [ -z "$API_HASH" ]; then
+            echo "Add API_ID and API_HASH in Codemagic → Environment variables, then start the build again."
+            exit 1
+          fi
           mkdir -p build-input
           cat > build-input/configuration.json <<EOF
           {"bundle_id":"ph.telegra.Telegraph","api_id":"${API_ID}","api_hash":"${API_HASH}","team_id":"C67CF9S4VU","is_internal_build":"true","is_appstore_build":"false","appstore_id":"0","app_specific_url_scheme":"tg","premium_iap_product_id":"","enable_siri":false,"enable_icloud":false}
