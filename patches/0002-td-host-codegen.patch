@@ -1,0 +1,30 @@
+diff --git a/third-party/td/build-td-bazel.sh b/third-party/td/build-td-bazel.sh
+--- a/third-party/td/build-td-bazel.sh
++++ b/third-party/td/build-td-bazel.sh
+@@ -16,13 +16,25 @@ options="$options -DOPENSSL_INCLUDE_DIR=${OPENSSL_DIR}/src/include"
+ options="$options -DCMAKE_BUILD_TYPE=Release"
+ options="$options -DIOS_DEPLOYMENT_TARGET=13.0"
+ 
++# Host code generation runs on macOS. Bazel hides Homebrew and can export an iOS SDKROOT.
++unset SDKROOT
++unset IPHONEOS_DEPLOYMENT_TARGET
++unset TVOS_DEPLOYMENT_TARGET
++unset WATCHOS_DEPLOYMENT_TARGET
++export PATH="/opt/homebrew/bin:/usr/local/bin:${PATH}"
++if ! command -v gperf >/dev/null 2>&1; then
++  echo "gperf is required to generate TDLib sources"
++  exit 1
++fi
++
+ cd "$BUILD_DIR"
+ 
+ # Generate source files
+ mkdir native-build
+ cd native-build
+-cmake -DTD_GENERATE_SOURCE_FILES=ON ../td
++MACOS_SDK="$(xcrun --sdk macosx --show-sdk-path)"
++cmake -DTD_GENERATE_SOURCE_FILES=ON -DCMAKE_OSX_SYSROOT="$MACOS_SDK" -DCMAKE_OSX_ARCHITECTURES=arm64 ../td
+ cmake --build . -- -j$(sysctl -n hw.ncpu)
+ cd ..
+ 
+ if [ "$ARCH" = "arm64" ]; then
