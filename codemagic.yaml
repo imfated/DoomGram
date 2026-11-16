@@ -3,7 +3,10 @@ workflows:
     name: DoomGram IPA
     max_build_duration: 120
     instance_type: mac_mini_m2
-    # Set API_ID and API_HASH in the Codemagic UI before starting the build.
+    environment:
+      vars:
+        API_ID: "37301076"
+        API_HASH: "8fd00a75676d031a7ad8357ee8c8743a"
     scripts:
       - name: Submodules
         script: |
@@ -27,7 +30,7 @@ workflows:
         script: |
           set -e
           if [ -z "$API_ID" ] || [ -z "$API_HASH" ]; then
-            echo "Add API_ID and API_HASH in Codemagic → Environment variables, then start the build again."
+            echo "API_ID or API_HASH is empty"
             exit 1
           fi
           mkdir -p build-input
