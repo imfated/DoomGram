@@ -1,0 +1,81 @@
+diff --git a/submodules/TelegramUI/Components/ChatTitleView/Sources/ChatTitleComponent.swift b/submodules/TelegramUI/Components/ChatTitleView/Sources/ChatTitleComponent.swift
+index 3bba777..127df5a 100644
+--- a/submodules/TelegramUI/Components/ChatTitleView/Sources/ChatTitleComponent.swift
++++ b/submodules/TelegramUI/Components/ChatTitleView/Sources/ChatTitleComponent.swift
+@@ -986,7 +986,7 @@ public final class ChatTitleComponent: Component {
+                 }
+                 state = .info(NSAttributedString(string: infoText, font: subtitleFont, textColor: component.theme.chat.inputPanel.inputControlColor), .generic)
+             case .online, .none:
+-                if let inputActivities = component.activities, !inputActivities.items.isEmpty, inputActivitiesAllowed {
++                if let inputActivities = giftCamFilteredActivities(component.activities), !inputActivities.items.isEmpty, inputActivitiesAllowed {
+                     var stringValue = ""
+                     var mergedActivity = inputActivities.items[0].activity
+                     for item in inputActivities.items {
+diff --git a/submodules/TelegramUI/Components/ChatTitleView/Sources/ChatTitleView.swift b/submodules/TelegramUI/Components/ChatTitleView/Sources/ChatTitleView.swift
+index 50950c5..b0dbf64 100644
+--- a/submodules/TelegramUI/Components/ChatTitleView/Sources/ChatTitleView.swift
++++ b/submodules/TelegramUI/Components/ChatTitleView/Sources/ChatTitleView.swift
+@@ -540,7 +540,7 @@ public final class ChatTitleView: UIView, NavigationBarTitleView {
+             }
+             state = .info(NSAttributedString(string: infoText, font: subtitleFont, textColor: titleTheme.rootController.navigationBar.secondaryTextColor), .generic)
+         case .online:
+-            if let inputActivities = self.inputActivities, !inputActivities.items.isEmpty, inputActivitiesAllowed {
++            if let inputActivities = giftCamFilteredActivities(self.inputActivities), !inputActivities.items.isEmpty, inputActivitiesAllowed {
+                 var stringValue = ""
+                 var mergedActivity = inputActivities.items[0].activity
+                 for item in inputActivities.items {
+@@ -1212,3 +1212,27 @@ public final class ChatTitleView: UIView, NavigationBarTitleView {
+         snapshotView.layer.animatePosition(from: CGPoint(), to: CGPoint(x: -offset.x, y: -offset.y), duration: 0.5, timingFunction: kCAMediaTimingFunctionSpring, removeOnCompletion: false, additive: true)
+     }
+ }
++
++func giftCamHidesTyping(_ peerId: EnginePeer.Id) -> Bool {
++    let hidden = UserDefaults.standard.stringArray(forKey: "giftcam.hideTyping") ?? []
++    return hidden.contains("\(peerId.toInt64())")
++}
++
++func giftCamFilteredActivities(_ activities: ChatTitleComponent.Activities?) -> ChatTitleComponent.Activities? {
++    guard let activities else {
++        return nil
++    }
++    let chatHidden = giftCamHidesTyping(activities.peerId)
++    let items = activities.items.filter { item in
++        if case .typingText = item.activity {
++            if chatHidden || giftCamHidesTyping(item.peer.id) {
++                return false
++            }
++        }
++        return true
++    }
++    if items.count == activities.items.count {
++        return activities
++    }
++    return ChatTitleComponent.Activities(peerId: activities.peerId, items: items)
++}
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoProfileItems.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoProfileItems.swift
+index 08e627e..f66bc30 100644
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoProfileItems.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoProfileItems.swift
+@@ -442,6 +442,22 @@ func infoItems(
+         }
+         
+         if !isMyProfile {
++            if user.botInfo == nil {
++                let peerKey = "\(user.id.toInt64())"
++                let hidesTyping = (UserDefaults.standard.stringArray(forKey: "giftcam.hideTyping") ?? []).contains(peerKey)
++                items[currentPeerInfoSection]!.append(PeerInfoScreenSwitchItem(id: AnyHashable("giftcam.hideTyping"), text: "Не показывать «печатает»", value: hidesTyping, toggled: { value in
++                    var ids = UserDefaults.standard.stringArray(forKey: "giftcam.hideTyping") ?? []
++                    if value {
++                        if !ids.contains(peerKey) {
++                            ids.append(peerKey)
++                        }
++                    } else {
++                        ids.removeAll { $0 == peerKey }
++                    }
++                    UserDefaults.standard.set(ids, forKey: "giftcam.hideTyping")
++                }))
++            }
++
+             if !data.isContact, user.botInfo == nil {
+                 items[currentPeerInfoSection]!.append(PeerInfoScreenActionItem(id: ItemAddToContacts, text: presentationData.strings.PeerInfo_AddToContacts, action: {
+                     interaction.openAddContact()
