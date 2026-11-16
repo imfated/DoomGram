@@ -88,7 +88,7 @@ index 38cbda4..7d85eed 100644
                  
                  for media in item.message.media {
                      if let action = media as? TelegramMediaAction {
-@@ -823,6 +824,16 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
+@@ -823,6 +824,20 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
                                          }
                                      }
                                  }
@@ -97,14 +97,35 @@ index 38cbda4..7d85eed 100644
 +                                    if !senderName.isEmpty {
 +                                        giftCamServiceLine = "\(senderName) отправил(а) Вам подарок стоимостью \(gift.price) звёзд"
 +                                    }
++                                    title = "Подарок"
 +                                    if let giftText, !giftText.isEmpty {
-+                                        giftMessageText = giftText
-+                                        giftMessageEntities = giftEntities
++                                        text = giftText
++                                        entities = giftEntities ?? []
++                                    } else {
++                                        text = ""
++                                        entities = []
 +                                    }
 +                                }
                                  animationFile = gift.file
                                  if let availability = gift.availability {
                                      let availabilityString: String
+@@ -836,12 +853,16 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
+                                 if incoming || item.presentationData.isPreview, let upgradeStars, upgradeStars > 0, !upgraded {
+                                     buttonTitle = item.presentationData.strings.Notification_StarGift_Unpack
+                                     buttonIcon = "GiftUnpack"
+                                 } else {
+                                     if isPrepaidUpgrade && !incoming {
+                                         buttonTitle = ""
+                                     } else {
+                                         buttonTitle = item.presentationData.strings.Notification_StarGift_View
+                                     }
+                                 }
++                                if item.message.id.namespace == Namespaces.Message.Local {
++                                    buttonTitle = "Посмотреть"
++                                    buttonIcon = nil
++                                }
+                             }
+                         case let .starGiftUnique(gift, isUpgrade, _, _, _, _, isRefunded, _, _, senderId, _, _, _, _, _, _, fromOffer, _, isCrafted, giftText, giftEntities, _):
 @@ -892,6 +903,12 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
                                      title = item.presentationData.strings.Notification_StarGift_TitleShort
                                  }
@@ -247,7 +268,7 @@ index e1624f6..f9b5e56 100644
                  let _ = (self.optionsPromise.get()
                  |> filter { $0 != nil }
                  |> take(1)
-@@ -2292,3 +2348,190 @@ func hasFirstResponder(_ view: UIView) -> Bool {
+@@ -2292,3 +2348,219 @@ func hasFirstResponder(_ view: UIView) -> Bool {
      }
      return false
  }
@@ -329,7 +350,7 @@ index e1624f6..f9b5e56 100644
 +        guard unique || firstLine.hasPrefix("#gift") else {
 +            return nil
 +        }
-+        let query = String(firstLine.dropFirst(unique ? 4 : 5)).trimmingCharacters(in: .whitespacesAndNewlines)
++        let query = String(firstLine.dropFirst(unique ? 4 : 5)).trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "#")))
 +        let caption = captionOffset < ns.length ? ns.substring(from: captionOffset) : ""
 +        let captionEntities = entities.compactMap { entity -> MessageTextEntity? in
 +            guard entity.range.lowerBound >= captionOffset, entity.range.upperBound <= ns.length else {
@@ -338,6 +359,35 @@ index e1624f6..f9b5e56 100644
 +            return MessageTextEntity(range: (entity.range.lowerBound - captionOffset)..<(entity.range.upperBound - captionOffset), type: entity.type)
 +        }
 +        return (unique, query, caption.isEmpty ? nil : caption, captionEntities)
++    }
++
++    private static func terms(_ query: String) -> [String] {
++        let key = query.lowercased()
++        let table: [String: [String]] = [
++            "мишка": ["мишка", "медведь", "teddy", "bear"],
++            "медведь": ["мишка", "медведь", "teddy", "bear"],
++            "сердце": ["сердце", "heart"],
++            "роза": ["роза", "rose"],
++            "торт": ["торт", "cake"],
++            "букет": ["букет", "bouquet", "flower"],
++            "ракета": ["ракета", "rocket"],
++            "шампанское": ["шампан", "champagne"],
++            "кубок": ["кубок", "trophy"],
++            "кольцо": ["кольцо", "ring"],
++            "алмаз": ["алмаз", "gem"],
++            "камень": ["gem", "алмаз"],
++            "коробка": ["короб", "box"]
++        ]
++        return table[key] ?? [query]
++    }
++
++    private static func titleMatches(_ title: String, _ query: String) -> Bool {
++        for term in Self.terms(query) where !term.isEmpty {
++            if title.range(of: term, options: .caseInsensitive) != nil {
++                return true
++            }
++        }
++        return false
 +    }
 +
 +    private static func slug(_ query: String) -> String {
@@ -404,25 +454,25 @@ index e1624f6..f9b5e56 100644
 +            if command.unique {
 +                let slug = Self.slug(command.query)
 +                for starGift in starGifts {
-+                    if case let .unique(gift) = starGift, slug.isEmpty || gift.slug.caseInsensitiveCompare(slug) == .orderedSame {
-+                        chosen = starGift
-+                        if !slug.isEmpty {
++                    if case let .unique(gift) = starGift {
++                        let slugMatch = !slug.isEmpty && gift.slug.caseInsensitiveCompare(slug) == .orderedSame
++                        if slugMatch || Self.titleMatches(gift.title, command.query) {
++                            chosen = starGift
 +                            break
 +                        }
 +                    }
 +                }
-+            }
-+            if chosen == nil, !command.query.isEmpty {
++            } else if !command.query.isEmpty {
 +                for starGift in starGifts {
 +                    if case let .generic(gift) = starGift {
-+                        if let title = gift.title, title.range(of: command.query, options: .caseInsensitive) != nil {
++                        if let title = gift.title, Self.titleMatches(title, command.query) {
 +                            chosen = starGift
 +                            break
 +                        }
 +                    }
 +                }
 +            }
-+            if chosen == nil {
++            if chosen == nil, command.query.isEmpty {
 +                for starGift in starGifts {
 +                    if case .generic = starGift {
 +                        chosen = starGift
@@ -560,7 +610,7 @@ index 17119cc..53d3408 100644
  import Intents
  import TelegramPresentationData
  import TelegramUIPreferences
-@@ -98,6 +99,48 @@ final class UnauthorizedApplicationContext {
+@@ -98,6 +99,77 @@ final class UnauthorizedApplicationContext {
      }
  }
  
@@ -581,7 +631,7 @@ index 17119cc..53d3408 100644
 +    guard unique || command.hasPrefix("#gift") else {
 +        return nil
 +    }
-+    let query = String(command.dropFirst(unique ? 4 : 5)).trimmingCharacters(in: .whitespacesAndNewlines)
++    let query = String(command.dropFirst(unique ? 4 : 5)).trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "#")))
 +    let caption = captionOffset < ns.length ? ns.substring(from: captionOffset) : ""
 +    let captionEntities = entities.compactMap { entity -> MessageTextEntity? in
 +        guard entity.range.lowerBound >= captionOffset, entity.range.upperBound <= ns.length else {
@@ -590,6 +640,35 @@ index 17119cc..53d3408 100644
 +        return MessageTextEntity(range: (entity.range.lowerBound - captionOffset)..<(entity.range.upperBound - captionOffset), type: entity.type)
 +    }
 +    return (unique, query, caption.isEmpty ? nil : caption, captionEntities)
++}
++
++private func giftCamTerms(_ query: String) -> [String] {
++    let key = query.lowercased()
++    let table: [String: [String]] = [
++        "мишка": ["мишка", "медведь", "teddy", "bear"],
++        "медведь": ["мишка", "медведь", "teddy", "bear"],
++        "сердце": ["сердце", "heart"],
++        "роза": ["роза", "rose"],
++        "торт": ["торт", "cake"],
++        "букет": ["букет", "bouquet", "flower"],
++        "ракета": ["ракета", "rocket"],
++        "шампанское": ["шампан", "champagne"],
++        "кубок": ["кубок", "trophy"],
++        "кольцо": ["кольцо", "ring"],
++        "алмаз": ["алмаз", "gem"],
++        "камень": ["gem", "алмаз"],
++        "коробка": ["короб", "box"]
++    ]
++    return table[key] ?? [query]
++}
++
++private func giftCamTitleMatches(_ title: String, _ query: String) -> Bool {
++    for term in giftCamTerms(query) where !term.isEmpty {
++        if title.range(of: term, options: .caseInsensitive) != nil {
++            return true
++        }
++    }
++    return false
 +}
 +
 +private func giftCamSlug(_ query: String) -> String {
@@ -641,29 +720,29 @@ index 17119cc..53d3408 100644
 +                            if wantsUnique {
 +                                let slug = giftCamSlug(query)
 +                                for starGift in starGifts {
-+                                    if case let .unique(gift) = starGift, slug.isEmpty || gift.slug.caseInsensitiveCompare(slug) == .orderedSame {
-+                                        chosen = starGift
-+                                        if !slug.isEmpty {
++                                    if case let .unique(gift) = starGift {
++                                        let slugMatch = !slug.isEmpty && gift.slug.caseInsensitiveCompare(slug) == .orderedSame
++                                        if slugMatch || giftCamTitleMatches(gift.title, query) {
++                                            chosen = starGift
 +                                            break
 +                                        }
 +                                    }
 +                                }
-+                            }
-+                            if chosen == nil, !query.isEmpty {
++                            } else if !query.isEmpty {
 +                                for starGift in starGifts {
 +                                    if case let .generic(gift) = starGift {
 +                                        if let wantedId = Int64(query), gift.id == wantedId {
 +                                            chosen = starGift
 +                                            break
 +                                        }
-+                                        if let title = gift.title, title.range(of: query, options: .caseInsensitive) != nil {
++                                        if let title = gift.title, giftCamTitleMatches(title, query) {
 +                                            chosen = starGift
 +                                            break
 +                                        }
 +                                    }
 +                                }
 +                            }
-+                            if chosen == nil {
++                            if chosen == nil, query.isEmpty {
 +                                for starGift in starGifts {
 +                                    if case .generic = starGift {
 +                                        chosen = starGift
