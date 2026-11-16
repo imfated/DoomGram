@@ -1,0 +1,24 @@
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift
+index 38cbda4..64ee8d1 100644
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift
+@@ -843,6 +843,9 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
+                                         buttonTitle = item.presentationData.strings.Notification_StarGift_View
+                                     }
+                                 }
++                                if item.message.id.namespace == Namespaces.Message.Local {
++                                    title = "Подарок"
++                                }
+                             }
+                         case let .starGiftUnique(gift, isUpgrade, _, _, _, _, isRefunded, _, _, senderId, _, _, _, _, _, _, fromOffer, _, isCrafted, giftText, giftEntities, _):
+                             if case let .unique(uniqueGiftValue) = gift {
+@@ -892,6 +895,9 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
+                                     title = item.presentationData.strings.Notification_StarGift_TitleShort
+                                 }
+                                 text = isStoryEntity ? "**\(item.presentationData.strings.Notification_StarGift_Collectible) #\(formatCollectibleNumber(uniqueGiftValue.number, dateTimeFormat: item.presentationData.dateTimeFormat))**" : "**\(uniqueGiftValue.title) #\(formatCollectibleNumber(uniqueGiftValue.number, dateTimeFormat: item.presentationData.dateTimeFormat))**"
++                                if item.message.id.namespace == Namespaces.Message.Local, !isStoryEntity {
++                                    title = "Подарок"
++                                }
+                                 if fromOffer {
+                                     ribbonTitle = incoming ? "" : item.presentationData.strings.Notification_StarGift_Sold
+                                     customRibbonColors = [UIColor(rgb: 0xd9433a), UIColor(rgb: 0xff645b)]
