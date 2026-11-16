@@ -268,7 +268,7 @@ index e1624f6..f9b5e56 100644
                  let _ = (self.optionsPromise.get()
                  |> filter { $0 != nil }
                  |> take(1)
-@@ -2292,3 +2348,219 @@ func hasFirstResponder(_ view: UIView) -> Bool {
+@@ -2292,3 +2348,242 @@ func hasFirstResponder(_ view: UIView) -> Bool {
      }
      return false
  }
@@ -350,7 +350,7 @@ index e1624f6..f9b5e56 100644
 +        guard unique || firstLine.hasPrefix("#gift") else {
 +            return nil
 +        }
-+        let query = String(firstLine.dropFirst(unique ? 4 : 5)).trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "#")))
++        let query = String(firstLine.dropFirst(unique ? 4 : 5)).trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "#_")))
 +        let caption = captionOffset < ns.length ? ns.substring(from: captionOffset) : ""
 +        let captionEntities = entities.compactMap { entity -> MessageTextEntity? in
 +            guard entity.range.lowerBound >= captionOffset, entity.range.upperBound <= ns.length else {
@@ -361,47 +361,98 @@ index e1624f6..f9b5e56 100644
 +        return (unique, query, caption.isEmpty ? nil : caption, captionEntities)
 +    }
 +
-+    private static func terms(_ query: String) -> [String] {
-+        let key = query.lowercased()
-+        let table: [String: [String]] = [
-+            "мишка": ["мишка", "медведь", "teddy", "bear"],
-+            "медведь": ["мишка", "медведь", "teddy", "bear"],
-+            "сердце": ["сердце", "heart"],
-+            "роза": ["роза", "rose"],
-+            "торт": ["торт", "cake"],
-+            "букет": ["букет", "bouquet", "flower"],
-+            "ракета": ["ракета", "rocket"],
-+            "шампанское": ["шампан", "champagne"],
-+            "кубок": ["кубок", "trophy"],
-+            "кольцо": ["кольцо", "ring"],
-+            "алмаз": ["алмаз", "gem"],
-+            "камень": ["gem", "алмаз"],
-+            "коробка": ["короб", "box"]
-+        ]
-+        return table[key] ?? [query]
-+    }
++    private static let numberedGiftIds: [Int64] = [
++        5170145012310081615,
++        5170233102089322756,
++        5170250947678437525,
++        5168103777563050263,
++        5170144170496491616,
++        5170314324215857265,
++        5170564780938756245,
++        6028601630662853006,
++        5168043875654172773,
++        5170690322832818290,
++        5170521118301225164
++    ]
 +
-+    private static func titleMatches(_ title: String, _ query: String) -> Bool {
-+        for term in Self.terms(query) where !term.isEmpty {
-+            if title.range(of: term, options: .caseInsensitive) != nil {
-+                return true
++    private static func genericGift(_ gifts: [StarGift], index: Int) -> StarGift.Gift? {
++        var byId: [Int64: StarGift.Gift] = [:]
++        var all: [StarGift.Gift] = []
++        for gift in gifts {
++            if case let .generic(item) = gift {
++                byId[item.id] = item
++                all.append(item)
 +            }
 +        }
-+        return false
++        let knownPresent = Self.numberedGiftIds.contains(where: { byId[$0] != nil })
++        if knownPresent {
++            if index >= 1 && index <= Self.numberedGiftIds.count {
++                return byId[Self.numberedGiftIds[index - 1]]
++            }
++            let extras = all.filter { !Self.numberedGiftIds.contains($0.id) }.sorted { $0.id < $1.id }
++            let extraIndex = index - Self.numberedGiftIds.count - 1
++            if extraIndex >= 0 && extraIndex < extras.count {
++                return extras[extraIndex]
++            }
++            return nil
++        }
++        guard index >= 1 && index <= all.count else {
++            return nil
++        }
++        return all[index - 1]
 +    }
 +
-+    private static func slug(_ query: String) -> String {
-+        var value = query.trimmingCharacters(in: .whitespacesAndNewlines)
-+        if let range = value.range(of: "/nft/") {
-+            value = String(value[range.upperBound...])
++    private static func makeUnique(_ gift: StarGift.Gift, index: Int, attributes: [StarGift.UniqueGift.Attribute]) -> StarGift {
++        let rarity = StarGift.UniqueGift.Attribute.Rarity.permille(10)
++        var result = attributes
++        if !result.contains(where: { if case .model = $0 { return true } else { return false } }) {
++            result.insert(.model(name: gift.title ?? "Gift", file: gift.file, rarity: rarity, crafted: false), at: 0)
 +        }
-+        if let queryIndex = value.firstIndex(of: "?") {
-+            value = String(value[..<queryIndex])
++        if !result.contains(where: { if case .backdrop = $0 { return true } else { return false } }) {
++            result.append(.backdrop(name: "Doom", id: 1, innerColor: Int32(bitPattern: 0x143528), outerColor: Int32(bitPattern: 0x0B2418), patternColor: Int32(bitPattern: 0x1F6B45), textColor: Int32(bitPattern: 0xFFFFFF), rarity: rarity))
 +        }
-+        if let slash = value.firstIndex(of: "/") {
-+            value = String(value[..<slash])
++        let number = Int32(index)
++        let total = max(gift.availability?.total ?? 1000, number)
++        let unique = StarGift.UniqueGift(
++            id: gift.id,
++            giftId: gift.id,
++            title: gift.title ?? "Gift",
++            number: number,
++            slug: "giftcam-\(gift.id)-\(number)",
++            owner: nil,
++            attributes: result,
++            availability: StarGift.UniqueGift.Availability(issued: number, total: total),
++            giftAddress: nil,
++            resellAmounts: nil,
++            resellForTonOnly: false,
++            releasedBy: gift.releasedBy,
++            valueAmount: nil,
++            valueCurrency: nil,
++            valueUsdAmount: nil,
++            flags: [],
++            themePeerId: nil,
++            peerColor: nil,
++            hostPeerId: nil,
++            minOfferStars: nil,
++            craftChancePermille: nil
++        )
++        return .unique(unique)
++    }
++
++    public static func resolve(context: AccountContext, gifts: [StarGift], unique: Bool, query: String, completion: @escaping (StarGift?) -> Void) {
++        guard let index = Int(query), let generic = Self.genericGift(gifts, index: index) else {
++            completion(nil)
++            return
 +        }
-+        return value
++        if !unique {
++            completion(.generic(generic))
++            return
++        }
++        let _ = (context.engine.payments.starGiftUpgradePreview(giftId: generic.id)
++        |> take(1)
++        |> deliverOnMainQueue).start(next: { preview in
++            completion(Self.makeUnique(generic, index: index, attributes: preview?.attributes ?? []))
++        })
 +    }
 +
 +    private static var startedCommands = Set<String>()
@@ -450,41 +501,13 @@ index e1624f6..f9b5e56 100644
 +                self.hiddenCommands.remove(key)
 +                return
 +            }
-+            var chosen: StarGift?
-+            if command.unique {
-+                let slug = Self.slug(command.query)
-+                for starGift in starGifts {
-+                    if case let .unique(gift) = starGift {
-+                        let slugMatch = !slug.isEmpty && gift.slug.caseInsensitiveCompare(slug) == .orderedSame
-+                        if slugMatch || Self.titleMatches(gift.title, command.query) {
-+                            chosen = starGift
-+                            break
-+                        }
-+                    }
++            Self.resolve(context: context, gifts: starGifts, unique: command.unique, query: command.query, completion: { chosen in
++                guard let chosen else {
++                    self.hiddenCommands.remove(key)
++                    return
 +                }
-+            } else if !command.query.isEmpty {
-+                for starGift in starGifts {
-+                    if case let .generic(gift) = starGift {
-+                        if let title = gift.title, Self.titleMatches(title, command.query) {
-+                            chosen = starGift
-+                            break
-+                        }
-+                    }
-+                }
-+            }
-+            if chosen == nil, command.query.isEmpty {
-+                for starGift in starGifts {
-+                    if case .generic = starGift {
-+                        chosen = starGift
-+                        break
-+                    }
-+                }
-+            }
-+            guard let chosen else {
-+                self.hiddenCommands.remove(key)
-+                return
-+            }
-+            self.deliver(account: context.account, peerId: peerId, authorId: authorId, incoming: incoming, gift: chosen, text: command.caption, entities: command.captionEntities, hideName: false)
++                self.deliver(account: context.account, peerId: peerId, authorId: authorId, incoming: incoming, gift: chosen, text: command.caption, entities: command.captionEntities, hideName: false)
++            })
 +        })
 +    }
 +}
@@ -603,14 +626,15 @@ diff --git a/submodules/TelegramUI/Sources/ApplicationContext.swift b/submodules
 index 17119cc..53d3408 100644
 --- a/submodules/TelegramUI/Sources/ApplicationContext.swift
 +++ b/submodules/TelegramUI/Sources/ApplicationContext.swift
-@@ -1,5 +1,6 @@
+@@ -1,5 +1,7 @@
  import Foundation
  import UIKit
 +import Postbox
++import GiftSetupScreen
  import Intents
  import TelegramPresentationData
  import TelegramUIPreferences
-@@ -98,6 +99,77 @@ final class UnauthorizedApplicationContext {
+@@ -98,6 +99,34 @@ final class UnauthorizedApplicationContext {
      }
  }
  
@@ -631,7 +655,7 @@ index 17119cc..53d3408 100644
 +    guard unique || command.hasPrefix("#gift") else {
 +        return nil
 +    }
-+    let query = String(command.dropFirst(unique ? 4 : 5)).trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "#")))
++    let query = String(command.dropFirst(unique ? 4 : 5)).trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "#_")))
 +    let caption = captionOffset < ns.length ? ns.substring(from: captionOffset) : ""
 +    let captionEntities = entities.compactMap { entity -> MessageTextEntity? in
 +        guard entity.range.lowerBound >= captionOffset, entity.range.upperBound <= ns.length else {
@@ -642,53 +666,10 @@ index 17119cc..53d3408 100644
 +    return (unique, query, caption.isEmpty ? nil : caption, captionEntities)
 +}
 +
-+private func giftCamTerms(_ query: String) -> [String] {
-+    let key = query.lowercased()
-+    let table: [String: [String]] = [
-+        "мишка": ["мишка", "медведь", "teddy", "bear"],
-+        "медведь": ["мишка", "медведь", "teddy", "bear"],
-+        "сердце": ["сердце", "heart"],
-+        "роза": ["роза", "rose"],
-+        "торт": ["торт", "cake"],
-+        "букет": ["букет", "bouquet", "flower"],
-+        "ракета": ["ракета", "rocket"],
-+        "шампанское": ["шампан", "champagne"],
-+        "кубок": ["кубок", "trophy"],
-+        "кольцо": ["кольцо", "ring"],
-+        "алмаз": ["алмаз", "gem"],
-+        "камень": ["gem", "алмаз"],
-+        "коробка": ["короб", "box"]
-+    ]
-+    return table[key] ?? [query]
-+}
-+
-+private func giftCamTitleMatches(_ title: String, _ query: String) -> Bool {
-+    for term in giftCamTerms(query) where !term.isEmpty {
-+        if title.range(of: term, options: .caseInsensitive) != nil {
-+            return true
-+        }
-+    }
-+    return false
-+}
-+
-+private func giftCamSlug(_ query: String) -> String {
-+    var value = query.trimmingCharacters(in: .whitespacesAndNewlines)
-+    if let range = value.range(of: "/nft/") {
-+        value = String(value[range.upperBound...])
-+    }
-+    if let queryIndex = value.firstIndex(of: "?") {
-+        value = String(value[..<queryIndex])
-+    }
-+    if let slash = value.firstIndex(of: "/") {
-+        value = String(value[..<slash])
-+    }
-+    return value
-+}
-+
  final class AuthorizedApplicationContext {
      let sharedApplicationContext: SharedApplicationContext
      let mainWindow: Window1
-@@ -324,7 +367,84 @@ final class AuthorizedApplicationContext {
+@@ -324,7 +367,52 @@ final class AuthorizedApplicationContext {
              }
  
              if let strongSelf = self, let (messages, _, notify, threadData) = messageList.last, let firstMessage = messages.first {
@@ -716,40 +697,7 @@ index 17119cc..53d3408 100644
 +                            guard let starGifts else {
 +                                return
 +                            }
-+                            var chosen: StarGift?
-+                            if wantsUnique {
-+                                let slug = giftCamSlug(query)
-+                                for starGift in starGifts {
-+                                    if case let .unique(gift) = starGift {
-+                                        let slugMatch = !slug.isEmpty && gift.slug.caseInsensitiveCompare(slug) == .orderedSame
-+                                        if slugMatch || giftCamTitleMatches(gift.title, query) {
-+                                            chosen = starGift
-+                                            break
-+                                        }
-+                                    }
-+                                }
-+                            } else if !query.isEmpty {
-+                                for starGift in starGifts {
-+                                    if case let .generic(gift) = starGift {
-+                                        if let wantedId = Int64(query), gift.id == wantedId {
-+                                            chosen = starGift
-+                                            break
-+                                        }
-+                                        if let title = gift.title, giftCamTitleMatches(title, query) {
-+                                            chosen = starGift
-+                                            break
-+                                        }
-+                                    }
-+                                }
-+                            }
-+                            if chosen == nil, query.isEmpty {
-+                                for starGift in starGifts {
-+                                    if case .generic = starGift {
-+                                        chosen = starGift
-+                                        break
-+                                    }
-+                                }
-+                            }
++                            GiftCam.resolve(context: context, gifts: starGifts, unique: wantsUnique, query: query, completion: { chosen in
 +                            guard let chosen else {
 +                                return
 +                            }
@@ -768,6 +716,7 @@ index 17119cc..53d3408 100644
 +                                let message = StoreMessage(peerId: triggerPeerId, namespace: Namespaces.Message.Local, customStableId: nil, globallyUniqueId: randomId, groupingKey: nil, threadId: nil, timestamp: timestamp, flags: StoreMessageFlags(MessageFlags.Incoming), tags: [], globalTags: [], localTags: [], forwardInfo: nil, authorId: triggerPeerId, text: "", attributes: [], media: [action])
 +                                let _ = transaction.addMessages([message], location: .Random)
 +                            }).start()
++                            })
 +                        })
 +                        return
 +                    }
