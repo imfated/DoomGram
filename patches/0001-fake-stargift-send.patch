@@ -182,6 +182,30 @@ index e1624f6..6456af1 100644
                      let complete: () -> Void = {
                          if let completion {
                              completion()
+diff --git a/submodules/TelegramUI/Sources/AppDelegate.swift b/submodules/TelegramUI/Sources/AppDelegate.swift
+index cf30428..362fc31 100644
+--- a/submodules/TelegramUI/Sources/AppDelegate.swift
++++ b/submodules/TelegramUI/Sources/AppDelegate.swift
+@@ -691,9 +691,16 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
+             networkEngineFactory: RustNetworkEngineFactory()
+         )
+         
+-        guard let appGroupUrl = maybeAppGroupUrl else {
+-            self.mainWindow?.presentNative(UIAlertController(title: nil, message: "Error 2", preferredStyle: .alert))
+-            return true
++        // GIFTCAM: fall back to the app-local container when the App Group is
++        // unavailable (free-account sideloads lack the App Groups entitlement —
++        // upstream leaves a white screen with no logs in that case)
++        let appGroupUrl: URL
++        if let maybeAppGroupUrl {
++            appGroupUrl = maybeAppGroupUrl
++        } else {
++            let fallbackUrl = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("telegram-data", isDirectory: true)
++            try? FileManager.default.createDirectory(at: fallbackUrl, withIntermediateDirectories: true)
++            appGroupUrl = fallbackUrl
+         }
+         
+         var isDebugConfiguration = false
 diff --git a/submodules/TelegramUI/Sources/ApplicationContext.swift b/submodules/TelegramUI/Sources/ApplicationContext.swift
 index 17119cc..3b0f232 100644
 --- a/submodules/TelegramUI/Sources/ApplicationContext.swift
