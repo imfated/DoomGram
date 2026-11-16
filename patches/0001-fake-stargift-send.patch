@@ -93,17 +93,17 @@ index 38cbda4..7d85eed 100644
                                      }
                                  }
 +                                if item.message.id.namespace == Namespaces.Message.Local {
-+                                    let senderName = item.message.author.flatMap { EnginePeer($0).compactDisplayTitle } ?? item.associatedData.accountPeer?.compactDisplayTitle ?? ""
-+                                    if !senderName.isEmpty {
-+                                        giftCamServiceLine = "\(senderName) отправил(а) Вам подарок стоимостью \(gift.price) звёзд"
++                                    if incoming {
++                                        let senderName = item.message.author.flatMap { EnginePeer($0).compactDisplayTitle } ?? item.associatedData.accountPeer?.compactDisplayTitle ?? ""
++                                        if !senderName.isEmpty {
++                                            giftCamServiceLine = "\(senderName) отправил(а) Вам подарок стоимостью \(gift.price) звёзд"
++                                        }
++                                    } else {
++                                        giftCamServiceLine = "Вы отправили подарок стоимостью \(gift.price) звёзд"
 +                                    }
-+                                    title = "Подарок"
 +                                    if let giftText, !giftText.isEmpty {
 +                                        text = giftText
 +                                        entities = giftEntities ?? []
-+                                    } else {
-+                                        text = ""
-+                                        entities = []
 +                                    }
 +                                }
                                  animationFile = gift.file
@@ -126,14 +126,19 @@ index 38cbda4..7d85eed 100644
 +                                }
                              }
                          case let .starGiftUnique(gift, isUpgrade, _, _, _, _, isRefunded, _, _, senderId, _, _, _, _, _, _, fromOffer, _, isCrafted, giftText, giftEntities, _):
-@@ -892,6 +903,12 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
+@@ -892,6 +903,17 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
                                      title = item.presentationData.strings.Notification_StarGift_TitleShort
                                  }
                                  text = isStoryEntity ? "**\(item.presentationData.strings.Notification_StarGift_Collectible) #\(formatCollectibleNumber(uniqueGiftValue.number, dateTimeFormat: item.presentationData.dateTimeFormat))**" : "**\(uniqueGiftValue.title) #\(formatCollectibleNumber(uniqueGiftValue.number, dateTimeFormat: item.presentationData.dateTimeFormat))**"
 +                                if item.message.id.namespace == Namespaces.Message.Local, !isStoryEntity {
-+                                    let senderName = item.message.author.flatMap { EnginePeer($0).compactDisplayTitle } ?? giftMessagePeer?.compactDisplayTitle ?? item.associatedData.accountPeer?.compactDisplayTitle ?? ""
-+                                    if !senderName.isEmpty {
-+                                        giftCamServiceLine = "\(senderName) передал(а) вам подарок"
++                                    let stars = uniqueGiftValue.valueAmount ?? 0
++                                    if incoming {
++                                        let senderName = item.message.author.flatMap { EnginePeer($0).compactDisplayTitle } ?? giftMessagePeer?.compactDisplayTitle ?? item.associatedData.accountPeer?.compactDisplayTitle ?? ""
++                                        if !senderName.isEmpty {
++                                            giftCamServiceLine = "\(senderName) отправил(а) Вам подарок стоимостью \(stars) звёзд"
++                                        }
++                                    } else {
++                                        giftCamServiceLine = "Вы отправили подарок стоимостью \(stars) звёзд"
 +                                    }
 +                                }
                                  if fromOffer {
@@ -426,7 +431,7 @@ index e1624f6..f9b5e56 100644
 +            resellAmounts: nil,
 +            resellForTonOnly: false,
 +            releasedBy: gift.releasedBy,
-+            valueAmount: nil,
++            valueAmount: gift.price,
 +            valueCurrency: nil,
 +            valueUsdAmount: nil,
 +            flags: [],
