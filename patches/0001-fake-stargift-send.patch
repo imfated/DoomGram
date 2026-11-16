@@ -350,26 +350,14 @@ index a960aed..6ceeb9f 100644
              buyStarGiftImpl(
                  context: self.context,
 diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
-index 8e3f9d2..78b319e 100644
+index 8e3f9d2..3723030 100644
 --- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
 +++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
-@@ -252,6 +252,23 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
+@@ -252,6 +252,11 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
          interaction.openSettings(.chatFolders)
      }))
      
-+    // GIFTCAM: toggle visual (local-only) gift sends. On by default.
-+    let giftCamVisualGifts: Bool
-+    if UserDefaults.standard.object(forKey: "giftcam.visualGifts") == nil {
-+        giftCamVisualGifts = true
-+    } else {
-+        giftCamVisualGifts = UserDefaults.standard.bool(forKey: "giftcam.visualGifts")
-+    }
-+    items[.advanced]!.append(PeerInfoScreenSwitchItem(id: "giftcam.visualGifts", text: "Визуал подарки", value: giftCamVisualGifts, toggled: { value in
-+        UserDefaults.standard.set(value, forKey: "giftcam.visualGifts")
-+    }))
-+
 +    let giftCamOn = UserDefaults.standard.object(forKey: "giftcam.visualGifts") == nil || UserDefaults.standard.bool(forKey: "giftcam.visualGifts")
-+    items[.advanced]!.append(PeerInfoScreenInfoItem(id: "giftcam.info", title: "DoomGram", text: .markdown("Визуальные подарки рисуются только на этом телефоне. Звёзды не списываются. Если переключиться на второй аккаунт здесь, подарок появится у него как входящий."), linkAction: { _ in }))
 +    items[.advanced]!.append(PeerInfoScreenSwitchItem(id: "giftcam.visualGifts", text: "Визуальные подарки", value: giftCamOn, toggled: { value in
 +        UserDefaults.standard.set(value, forKey: "giftcam.visualGifts")
 +    }))
@@ -423,7 +411,7 @@ index cf30428..6b61409 100644
                      self.mainWindow.viewController = context.rootController
                      
 diff --git a/submodules/TelegramUI/Sources/ApplicationContext.swift b/submodules/TelegramUI/Sources/ApplicationContext.swift
-index 17119cc..3b0f232 100644
+index 17119cc..a77745c 100644
 --- a/submodules/TelegramUI/Sources/ApplicationContext.swift
 +++ b/submodules/TelegramUI/Sources/ApplicationContext.swift
 @@ -1,5 +1,6 @@
@@ -433,13 +421,16 @@ index 17119cc..3b0f232 100644
  import Intents
  import TelegramPresentationData
  import TelegramUIPreferences
-@@ -325,6 +326,59 @@ final class AuthorizedApplicationContext {
+@@ -324,7 +325,75 @@ final class AuthorizedApplicationContext {
+             }
  
              if let strongSelf = self, let (messages, _, notify, threadData) = messageList.last, let firstMessage = messages.first {
-                 if UIApplication.shared.applicationState == .active {
-+                    // GIFTCAM: incoming trigger text "#gift" / "#gift <title or id>" — hide the trigger and insert a fake incoming star gift locally
-+                    if firstMessage.id.peerId != context.account.peerId, firstMessage.flags.contains(.Incoming), firstMessage.text.hasPrefix("#gift") {
-+                        let triggerText = firstMessage.text
+-                if UIApplication.shared.applicationState == .active {
++                // GIFTCAM: a message from another device ("#gift" or "#nft") becomes a local incoming gift. Works while the app is open, including in the background.
++                let triggerBody = firstMessage.text.trimmingCharacters(in: .whitespacesAndNewlines)
++                if firstMessage.id.peerId != context.account.peerId, firstMessage.flags.contains(.Incoming), triggerBody.hasPrefix("#gift") || triggerBody.hasPrefix("#nft") {
++                        let triggerText = triggerBody
++                        let wantsUnique = triggerBody.hasPrefix("#nft")
 +                        let triggerPeerId = firstMessage.id.peerId
 +                        let triggerMessageId = firstMessage.id
 +                        let keepUpdatedDisposable = context.engine.payments.keepStarGiftsUpdated().start()
@@ -452,8 +443,16 @@ index 17119cc..3b0f232 100644
 +                                return
 +                            }
 +                            var chosen: StarGift?
-+                            let query = String(triggerText.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines)
-+                            if !query.isEmpty {
++                            let query = String(triggerText.dropFirst(wantsUnique ? 4 : 5)).trimmingCharacters(in: .whitespacesAndNewlines)
++                            if wantsUnique {
++                                for starGift in starGifts {
++                                    if case .unique = starGift {
++                                        chosen = starGift
++                                        break
++                                    }
++                                }
++                            }
++                            if chosen == nil, !query.isEmpty {
 +                                for starGift in starGifts {
 +                                    if case let .generic(gift) = starGift {
 +                                        if let wantedId = Int64(query), gift.id == wantedId {
@@ -475,7 +474,7 @@ index 17119cc..3b0f232 100644
 +                                    }
 +                                }
 +                            }
-+                            guard let chosen, case let .generic(chosenGift) = chosen else {
++                            guard let chosen else {
 +                                return
 +                            }
 +                            let timestamp = Int32(clamping: Int64(Date().timeIntervalSince1970))
@@ -483,7 +482,13 @@ index 17119cc..3b0f232 100644
 +                            let accountPeerId = context.account.peerId
 +                            let _ = (context.account.postbox.transaction { transaction -> Void in
 +                                transaction.deleteMessages([triggerMessageId], forEachMedia: nil)
-+                                let action = TelegramMediaAction(action: .starGift(gift: chosen, convertStars: chosenGift.convertStars, text: nil, entities: nil, nameHidden: false, savedToProfile: false, converted: false, upgraded: false, canUpgrade: chosenGift.upgradeStars != nil, upgradeStars: chosenGift.upgradeStars, isRefunded: false, isPrepaidUpgrade: false, upgradeMessageId: nil, peerId: nil, senderId: triggerPeerId, savedId: nil, prepaidUpgradeHash: nil, giftMessageId: nil, upgradeSeparate: false, isAuctionAcquired: false, toPeerId: accountPeerId, number: nil))
++                                let action: TelegramMediaAction
++                                switch chosen {
++                                case let .generic(chosenGift):
++                                    action = TelegramMediaAction(action: .starGift(gift: chosen, convertStars: chosenGift.convertStars, text: nil, entities: nil, nameHidden: false, savedToProfile: false, converted: false, upgraded: false, canUpgrade: chosenGift.upgradeStars != nil, upgradeStars: chosenGift.upgradeStars, isRefunded: false, isPrepaidUpgrade: false, upgradeMessageId: nil, peerId: nil, senderId: triggerPeerId, savedId: nil, prepaidUpgradeHash: nil, giftMessageId: nil, upgradeSeparate: false, isAuctionAcquired: false, toPeerId: accountPeerId, number: nil))
++                                case .unique:
++                                    action = TelegramMediaAction(action: .starGiftUnique(gift: chosen, isUpgrade: false, isTransferred: true, savedToProfile: false, canExportDate: nil, transferStars: nil, isRefunded: false, isPrepaidUpgrade: false, peerId: triggerPeerId, senderId: triggerPeerId, savedId: nil, resaleAmount: nil, canTransferDate: nil, canResaleDate: nil, dropOriginalDetailsStars: nil, assigned: false, fromOffer: false, canCraftAt: nil, isCrafted: false, text: nil, entities: nil, nameHidden: false))
++                                }
 +                                let message = StoreMessage(peerId: triggerPeerId, namespace: Namespaces.Message.Local, customStableId: nil, globallyUniqueId: randomId, groupingKey: nil, threadId: nil, timestamp: timestamp, flags: StoreMessageFlags(MessageFlags.Incoming), tags: [], globalTags: [], localTags: [], forwardInfo: nil, authorId: triggerPeerId, text: "", attributes: [], media: [action])
 +                                let _ = transaction.addMessages([message], location: .Random)
 +                            }).start()
@@ -493,3 +498,11 @@ index 17119cc..3b0f232 100644
                      let chatLocation: NavigateToChatControllerParams.Location
                      if let _ = threadData, let threadId = firstMessage.threadId {
                          chatLocation = .replyThread(ChatReplyThreadMessage(
+@@ -512,7 +581,6 @@ final class AuthorizedApplicationContext {
+                             }
+                         })
+                     }
+-                }
+             }
+         }))
+         
