@@ -26,6 +26,7 @@ workflows:
           echo "Using $XCODE_PATH"
           sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
           xcodebuild -version
+          xcodebuild -downloadComponent MetalToolchain
       - name: Signing and configuration
         script: |
           set -e
