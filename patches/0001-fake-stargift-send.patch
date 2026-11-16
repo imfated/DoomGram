@@ -76,6 +76,38 @@ index bab90e6..ff61e5c 100644
  submodules/TelegramUI/Components/GlobalControlPanelsContext/Sources/GlobalControlPanelsContext.swift
  submodules/TelegramUI/Components/ListComposePollOptionComponent/Sources/ListComposePollOptionComponent.swift
  submodules/TelegramUI/Components/MediaEditor/Sources/MediaEditor.swift
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift
+index 38cbda4..8ae63df 100644
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift
+@@ -823,6 +823,14 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
+                                         }
+                                     }
+                                 }
++                                if item.message.id.namespace == Namespaces.Message.Local {
++                                    let senderName = item.message.author.flatMap { EnginePeer($0).compactDisplayTitle } ?? item.associatedData.accountPeer?.compactDisplayTitle ?? ""
++                                    if !senderName.isEmpty {
++                                        title = "\(senderName) отправил вам подарок"
++                                        text = "стоимостью \(gift.price) звёзд"
++                                        entities = []
++                                    }
++                                }
+                                 animationFile = gift.file
+                                 if let availability = gift.availability {
+                                     let availabilityString: String
+@@ -892,6 +900,12 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
+                                     title = item.presentationData.strings.Notification_StarGift_TitleShort
+                                 }
+                                 text = isStoryEntity ? "**\(item.presentationData.strings.Notification_StarGift_Collectible) #\(formatCollectibleNumber(uniqueGiftValue.number, dateTimeFormat: item.presentationData.dateTimeFormat))**" : "**\(uniqueGiftValue.title) #\(formatCollectibleNumber(uniqueGiftValue.number, dateTimeFormat: item.presentationData.dateTimeFormat))**"
++                                if item.message.id.namespace == Namespaces.Message.Local, !isStoryEntity {
++                                    let senderName = item.message.author.flatMap { EnginePeer($0).compactDisplayTitle } ?? giftMessagePeer?.compactDisplayTitle ?? item.associatedData.accountPeer?.compactDisplayTitle ?? ""
++                                    if !senderName.isEmpty {
++                                        title = "\(senderName) передал уникальный NFT"
++                                    }
++                                }
+                                 if fromOffer {
+                                     ribbonTitle = incoming ? "" : item.presentationData.strings.Notification_StarGift_Sold
+                                     customRibbonColors = [UIColor(rgb: 0xd9433a), UIColor(rgb: 0xff645b)]
 diff --git a/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift b/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift
 index e1624f6..4bedfdf 100644
 --- a/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift
