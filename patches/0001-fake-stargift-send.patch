@@ -194,7 +194,7 @@ index e1624f6..f9b5e56 100644
                  let _ = (self.optionsPromise.get()
                  |> filter { $0 != nil }
                  |> take(1)
-@@ -2292,3 +2348,243 @@ func hasFirstResponder(_ view: UIView) -> Bool {
+@@ -2292,3 +2348,280 @@ func hasFirstResponder(_ view: UIView) -> Bool {
      }
      return false
  }
@@ -366,7 +366,44 @@ index e1624f6..f9b5e56 100644
 +        return .unique(unique)
 +    }
 +
++    private static func nftSlug(_ query: String) -> String? {
++        var value = query.trimmingCharacters(in: .whitespacesAndNewlines)
++        if let range = value.range(of: "/nft/") {
++            value = String(value[range.upperBound...])
++        } else if value.contains("://") || value.hasPrefix("t.me/") {
++            return nil
++        }
++        if let queryIndex = value.firstIndex(of: "?") {
++            value = String(value[..<queryIndex])
++        }
++        if let hash = value.firstIndex(of: "#") {
++            value = String(value[..<hash])
++        }
++        if let slash = value.firstIndex(of: "/") {
++            value = String(value[..<slash])
++        }
++        value = value.trimmingCharacters(in: .whitespacesAndNewlines)
++        if value.isEmpty || Int(value) != nil {
++            return nil
++        }
++        return value
++    }
++
 +    public static func resolve(context: AccountContext, gifts: [StarGift], unique: Bool, query: String, completion: @escaping (StarGift?) -> Void) {
++        if unique, Int(query) == nil, let slug = Self.nftSlug(query) {
++            let _ = (context.engine.payments.getUniqueStarGift(slug: slug)
++            |> map { uniqueGift -> StarGift.UniqueGift? in
++                return uniqueGift
++            }
++            |> `catch` { (_: GetUniqueStarGiftError) -> Signal<StarGift.UniqueGift?, NoError> in
++                return .single(nil)
++            }
++            |> take(1)
++            |> deliverOnMainQueue).start(next: { uniqueGift in
++                completion(uniqueGift.map { .unique($0) })
++            })
++            return
++        }
 +        guard let index = Int(query), let generic = Self.genericGift(gifts, index: index) else {
 +            completion(nil)
 +            return
