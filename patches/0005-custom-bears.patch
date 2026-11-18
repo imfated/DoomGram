@@ -1,0 +1,382 @@
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/BUILD b/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/BUILD
+index ed9b47d..31cde8c 100644
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/BUILD
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/BUILD
+@@ -36,6 +36,10 @@ swift_library(
+         "//submodules/TelegramUI/Components/PeerInfo/PeerInfoCoverComponent",
+         "//submodules/TelegramUI/Components/Gifts/GiftItemComponent",
+         "//submodules/TextSelectionNode",
++        "//submodules/TelegramUI/Components/Gifts/GiftSetupScreen",
++    ],
++    sdk_frameworks = [
++        "AVFoundation",
+     ],
+     visibility = [
+         "//visibility:public",
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift
+index 38cbda4..fa89ee7 100644
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift
+@@ -27,6 +27,8 @@ import InvisibleInkDustNode
+ import PeerInfoCoverComponent
+ import GiftItemComponent
+ import TextSelectionNode
++import GiftSetupScreen
++import AVFoundation
+ 
+ private func attributedServiceMessageString(theme: ChatPresentationThemeData, strings: PresentationStrings, nameDisplayOrder: PresentationPersonNameOrder, dateTimeFormat: PresentationDateTimeFormat, message: EngineMessage, accountPeerId: EnginePeer.Id) -> NSAttributedString? {
+     return universalServiceMessageString(presentationData: (theme.theme, theme.wallpaper), strings: strings, nameDisplayOrder: nameDisplayOrder, dateTimeFormat: dateTimeFormat, message: message, accountPeerId: accountPeerId, forChatList: false, forForumOverview: false, forAdditionalServiceMessage: true)
+@@ -60,6 +62,7 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
+     private var giftMessageSelectionControlColor: UIColor?
+     private let placeholderNode: StickerShimmerEffectNode
+     private let animationNode: AnimatedStickerNode
++    private var giftCamBearVideoView: GiftCamBearVideoView?
+     private let giftIcon = ComponentView<Empty>()
+     
+     private let modelTitleTextNode: TextNode
+@@ -564,6 +567,7 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
+                                 
+                 var months: Int32 = 3
+                 var animationFile: TelegramMediaFile?
++                var giftCamBearURL: URL?
+                 var stickerPackAnimation: (reference: StickerPackReference, sourceId: String, file: TelegramMediaFile)?
+                 var uniqueGift: StarGift.UniqueGift?
+                 var title = item.presentationData.strings.Notification_PremiumGift_Title
+@@ -824,6 +828,9 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
+                                     }
+                                 }
+                                 animationFile = gift.file
++                                if item.message.id.namespace == Namespaces.Message.Local, gift.id == GiftCamBears.bearGiftId {
++                                    giftCamBearURL = GiftCamBears.activeFileURL()
++                                }
+                                 if let availability = gift.availability {
+                                     let availabilityString: String
+                                     if availability.total > 9999 {
+@@ -1276,8 +1283,9 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
+                             }
+                             let animationFrame = CGRect(origin: CGPoint(x: mediaBackgroundFrame.minX + floorToScreenPixels((mediaBackgroundFrame.width - iconSize.width) / 2.0), y: mediaBackgroundFrame.minY - 16.0 + iconOffset), size: iconSize)
+                             strongSelf.animationNode.frame = animationFrame
+-                            strongSelf.animationNode.isHidden = isStoryEntity || animationSourceId == nil
+-                            strongSelf.placeholderNode.isHidden = animationSourceId == nil
++                            strongSelf.animationNode.isHidden = isStoryEntity || animationSourceId == nil || giftCamBearURL != nil
++                            strongSelf.updateGiftCamBearVideo(url: giftCamBearURL, frame: animationFrame)
++                            strongSelf.placeholderNode.isHidden = animationSourceId == nil || giftCamBearURL != nil
+                             
+                             strongSelf.buttonNode.isHidden = buttonTitle.isEmpty
+                             strongSelf.buttonNode.isUserInteractionEnabled = !item.presentationData.isPreview || isGiftMessageComposerPreview
+@@ -2086,3 +2094,71 @@ private func generateMaskImage() -> UIImage? {
+         context.drawLinearGradient(gradient, start: CGPoint(x: 30.0, y: 0.0), end: CGPoint(x: size.width, y: 0.0), options: CGGradientDrawingOptions())
+     })?.resizableImage(withCapInsets: UIEdgeInsets(top: 0.0, left: 0.0, bottom: 18.0, right: 70.0))
+ }
++
++private final class GiftCamBearVideoView: UIView {
++    let url: URL
++    private let player = AVPlayer()
++    private var endObserver: NSObjectProtocol?
++
++    init(url: URL) {
++        self.url = url
++        super.init(frame: .zero)
++        self.isUserInteractionEnabled = false
++        self.clipsToBounds = true
++        self.layer.cornerRadius = 16.0
++        let item = AVPlayerItem(url: url)
++        self.player.replaceCurrentItem(with: item)
++        self.player.isMuted = true
++        if let layer = self.layer as? AVPlayerLayer {
++            layer.player = self.player
++            layer.videoGravity = .resizeAspect
++        }
++        let loopingPlayer = self.player
++        self.endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak loopingPlayer] _ in
++            loopingPlayer?.seek(to: .zero)
++            loopingPlayer?.play()
++        }
++    }
++
++    required init?(coder: NSCoder) {
++        fatalError()
++    }
++
++    override class var layerClass: AnyClass {
++        return AVPlayerLayer.self
++    }
++
++    func play() {
++        if self.player.timeControlStatus != .playing {
++            self.player.play()
++        }
++    }
++
++    deinit {
++        if let endObserver = self.endObserver {
++            NotificationCenter.default.removeObserver(endObserver)
++        }
++    }
++}
++
++private extension ChatMessageGiftBubbleContentNode {
++    func updateGiftCamBearVideo(url: URL?, frame: CGRect) {
++        guard let url else {
++            self.giftCamBearVideoView?.removeFromSuperview()
++            self.giftCamBearVideoView = nil
++            return
++        }
++        let view: GiftCamBearVideoView
++        if let existing = self.giftCamBearVideoView, existing.url == url {
++            view = existing
++        } else {
++            self.giftCamBearVideoView?.removeFromSuperview()
++            view = GiftCamBearVideoView(url: url)
++            self.view.addSubview(view)
++            self.giftCamBearVideoView = view
++        }
++        view.frame = frame
++        self.view.bringSubviewToFront(view)
++        view.play()
++    }
++}
+diff --git a/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftCamBears.swift b/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftCamBears.swift
+new file mode 100644
+index 0000000..82b7754
+--- /dev/null
++++ b/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftCamBears.swift
+@@ -0,0 +1,208 @@
++import Foundation
++import UIKit
++
++public enum GiftCamBears {
++    public static let bearGiftId: Int64 = 5170233102089322756
++
++    public struct Bear: Codable, Equatable {
++        public var id: String
++        public var name: String
++        public var file: String
++    }
++
++    private struct IndexFile: Codable {
++        var active: String?
++        var bears: [Bear]
++    }
++
++    public static func activeFileURL() -> URL? {
++        let index = self.load()
++        guard let active = index.active, let bear = index.bears.first(where: { $0.id == active }) else {
++            return nil
++        }
++        let url = self.directory().appendingPathComponent(bear.file)
++        return FileManager.default.fileExists(atPath: url.path) ? url : nil
++    }
++
++    public static func present() {
++        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
++        let window = scene?.windows.first { $0.isKeyWindow } ?? scene?.windows.first
++        var top = window?.rootViewController
++        while let presented = top?.presentedViewController {
++            top = presented
++        }
++        let controller = UINavigationController(rootViewController: GiftCamBearsController())
++        controller.modalPresentationStyle = .formSheet
++        top?.present(controller, animated: true)
++    }
++
++    static func load() -> (active: String?, bears: [Bear]) {
++        let url = self.directory().appendingPathComponent("index.json")
++        guard let data = try? Data(contentsOf: url), let index = try? JSONDecoder().decode(IndexFile.self, from: data) else {
++            return (nil, [])
++        }
++        return (index.active, index.bears)
++    }
++
++    static func save(active: String?, bears: [Bear]) {
++        let index = IndexFile(active: active, bears: bears)
++        guard let data = try? JSONEncoder().encode(index) else {
++            return
++        }
++        try? data.write(to: self.directory().appendingPathComponent("index.json"), options: .atomic)
++    }
++
++    static func directory() -> URL {
++        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("giftcam-bears", isDirectory: true)
++        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
++        return base
++    }
++
++    @discardableResult
++    static func addCopy(of source: URL) -> Bear? {
++        let accessed = source.startAccessingSecurityScopedResource()
++        defer {
++            if accessed {
++                source.stopAccessingSecurityScopedResource()
++            }
++        }
++        var index = self.load()
++        let id = UUID().uuidString
++        let ext = source.pathExtension.isEmpty ? "mp4" : source.pathExtension
++        let filename = "\(id).\(ext)"
++        let destination = self.directory().appendingPathComponent(filename)
++        do {
++            if FileManager.default.fileExists(atPath: destination.path) {
++                try FileManager.default.removeItem(at: destination)
++            }
++            try FileManager.default.copyItem(at: source, to: destination)
++        } catch {
++            return nil
++        }
++        let bear = Bear(id: id, name: "Мишка \(index.bears.count + 1)", file: filename)
++        index.bears.append(bear)
++        index.active = id
++        self.save(active: index.active, bears: index.bears)
++        return bear
++    }
++
++    static func delete(id: String) {
++        var index = self.load()
++        if let bear = index.bears.first(where: { $0.id == id }) {
++            try? FileManager.default.removeItem(at: self.directory().appendingPathComponent(bear.file))
++        }
++        index.bears.removeAll { $0.id == id }
++        if index.active == id {
++            index.active = index.bears.last?.id
++        }
++        self.save(active: index.active, bears: index.bears)
++    }
++
++    static func setActive(id: String?) {
++        let index = self.load()
++        self.save(active: id, bears: index.bears)
++    }
++}
++
++final class GiftCamBearsController: UITableViewController, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
++    private var active: String?
++    private var bears: [GiftCamBears.Bear] = []
++
++    init() {
++        super.init(style: .insetGrouped)
++    }
++
++    required init?(coder: NSCoder) {
++        fatalError()
++    }
++
++    override func viewDidLoad() {
++        super.viewDidLoad()
++        self.title = "Мои мишки"
++        self.navigationItem.leftBarButtonItem = UIBarButtonItem(title: "Закрыть", style: .plain, target: self, action: #selector(self.closePressed))
++        self.navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Добавить", style: .done, target: self, action: #selector(self.addPressed))
++        self.reload()
++    }
++
++    private func reload() {
++        let index = GiftCamBears.load()
++        self.active = index.active
++        self.bears = index.bears
++        self.tableView.reloadData()
++    }
++
++    @objc private func closePressed() {
++        self.dismiss(animated: true)
++    }
++
++    @objc private func addPressed() {
++        let picker = UIImagePickerController()
++        picker.sourceType = .photoLibrary
++        picker.mediaTypes = ["public.movie"]
++        picker.videoExportPreset = "AVAssetExportPresetHighestQuality"
++        picker.delegate = self
++        self.present(picker, animated: true)
++    }
++
++    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
++        picker.dismiss(animated: true)
++    }
++
++    func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
++        let url = info[.mediaURL] as? URL
++        picker.dismiss(animated: true) {
++            guard let url else {
++                return
++            }
++            if GiftCamBears.addCopy(of: url) == nil {
++                let alert = UIAlertController(title: "Не получилось сохранить видео", message: nil, preferredStyle: .alert)
++                alert.addAction(UIAlertAction(title: "Ок", style: .default))
++                self.present(alert, animated: true)
++            }
++            self.reload()
++        }
++    }
++
++    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
++        return max(self.bears.count, 1)
++    }
++
++    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
++        let cell = tableView.dequeueReusableCell(withIdentifier: "bear") ?? UITableViewCell(style: .subtitle, reuseIdentifier: "bear")
++        if self.bears.isEmpty {
++            cell.textLabel?.text = "Нет своих мишек"
++            cell.detailTextLabel?.text = "Добавь видео. Обычный мишка будет с этим роликом."
++            cell.accessoryType = .none
++            cell.selectionStyle = .none
++            return cell
++        }
++        let bear = self.bears[indexPath.row]
++        cell.textLabel?.text = bear.name
++        cell.detailTextLabel?.text = bear.id == self.active ? "Сейчас на подарке" : "Нажми, чтобы поставить на мишку"
++        cell.accessoryType = bear.id == self.active ? .checkmark : .none
++        cell.selectionStyle = .default
++        return cell
++    }
++
++    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
++        tableView.deselectRow(at: indexPath, animated: true)
++        guard indexPath.row < self.bears.count else {
++            return
++        }
++        let bear = self.bears[indexPath.row]
++        GiftCamBears.setActive(id: bear.id == self.active ? nil : bear.id)
++        self.reload()
++    }
++
++    override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
++        return !self.bears.isEmpty
++    }
++
++    override func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
++        guard editingStyle == .delete, indexPath.row < self.bears.count else {
++            return
++        }
++        GiftCamBears.delete(id: self.bears[indexPath.row].id)
++        self.reload()
++    }
++}
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/BUILD b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/BUILD
+index bd33bb7..845a897 100644
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/BUILD
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/BUILD
+@@ -15,6 +15,7 @@ swift_library(
+         "//submodules/TelegramUI/Components/NavigationBarComponent",
+         "//submodules/TelegramUI/Components/NavigationExpansionTransition",
+         "//submodules/AccountContext",
++        "//submodules/TelegramUI/Components/Gifts/GiftSetupScreen",
+         "//submodules/AccountUtils",
+         "//submodules/ActionSheetPeerItem",
+         "//submodules/ActivityIndicator",
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
+@@ -14,4 +14,5 @@ import TelegramStringFormatting
+ import PeerNameColorItem
+ import WalletContext
++import GiftSetupScreen
+ 
+ enum SettingsSection: Int, CaseIterable {
+@@ -252,5 +253,8 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
+     items[.advanced]!.append(PeerInfoScreenSwitchItem(id: "giftcam.visualGifts", text: "Визуальные подарки", value: giftCamOn, toggled: { value in
+         UserDefaults.standard.set(value, forKey: "giftcam.visualGifts")
+     }))
++    items[.advanced]!.append(PeerInfoScreenDisclosureItem(id: "giftcam.bears", text: "Мои мишки", action: {
++        GiftCamBears.present()
++    }))
+ 
+     let notificationsWarning: Bool
