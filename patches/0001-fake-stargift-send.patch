@@ -88,7 +88,7 @@ index e1624f6..f9b5e56 100644
  import TelegramCore
  import TelegramNotices
  import TelegramPresentationData
-@@ -552,27 +553,82 @@ private final class GiftSetupScreenComponent: Component {
+@@ -552,27 +553,48 @@ private final class GiftSetupScreenComponent: Component {
                  
                  let completion = component.completion
                  
@@ -145,41 +145,7 @@ index e1624f6..f9b5e56 100644
 +                        }
 +                        let giftText: String? = rawText.isEmpty ? nil : rawText
 +                        let giftEntities: [MessageTextEntity]? = (giftText == nil || isIncomingFake) ? nil : entities
-+                        let randomId = Int64.random(in: 1 ... Int64.max)
-+                        let timestamp = Int32(clamping: Int64(Date().timeIntervalSince1970))
-+                        let messageAuthorId = isIncomingFake ? peerId : component.context.account.peerId
-+                        let messageFlags: StoreMessageFlags = isIncomingFake ? StoreMessageFlags(MessageFlags.Incoming) : []
-+                        let _ = (component.context.account.postbox.transaction { transaction -> Void in
-+                            let action = TelegramMediaAction(action: .starGift(
-+                                gift: .generic(starGift),
-+                                convertStars: starGift.convertStars,
-+                                text: giftText,
-+                                entities: giftEntities,
-+                                nameHidden: self.hideName,
-+                                savedToProfile: false,
-+                                converted: false,
-+                                upgraded: false,
-+                                canUpgrade: starGift.upgradeStars != nil,
-+                                upgradeStars: starGift.upgradeStars,
-+                                isRefunded: false,
-+                                isPrepaidUpgrade: false,
-+                                upgradeMessageId: nil,
-+                                peerId: nil,
-+                                senderId: isIncomingFake ? peerId : nil,
-+                                savedId: nil,
-+                                prepaidUpgradeHash: nil,
-+                                giftMessageId: nil,
-+                                upgradeSeparate: false,
-+                                isAuctionAcquired: false,
-+                                toPeerId: nil,
-+                                number: nil
-+                            ))
-+                            let message = StoreMessage(peerId: peerId, namespace: Namespaces.Message.Local, customStableId: nil, globallyUniqueId: randomId, groupingKey: nil, threadId: nil, timestamp: timestamp, flags: messageFlags, tags: [], globalTags: [], localTags: [], forwardInfo: nil, authorId: messageAuthorId, text: "", attributes: [], media: [action])
-+                            let _ = transaction.addMessages([message], location: .Random)
-+                        }).start()
-+                        let senderId = isIncomingFake ? peerId : component.context.account.peerId
-+                        let recipientId = isIncomingFake ? component.context.account.peerId : peerId
-+                        GiftCam.remember(sender: senderId, recipient: recipientId, gift: .generic(starGift), text: giftText, hideName: self.hideName)
++                        GiftCam.deliver(account: component.context.account, peerId: peerId, authorId: isIncomingFake ? peerId : component.context.account.peerId, incoming: isIncomingFake, gift: .generic(starGift), text: giftText, entities: giftEntities, hideName: self.hideName)
 +                    }
 +
                      let complete: () -> Void = {
@@ -194,7 +160,7 @@ index e1624f6..f9b5e56 100644
                  let _ = (self.optionsPromise.get()
                  |> filter { $0 != nil }
                  |> take(1)
-@@ -2292,3 +2348,280 @@ func hasFirstResponder(_ view: UIView) -> Bool {
+@@ -2292,3 +2348,271 @@ func hasFirstResponder(_ view: UIView) -> Bool {
      }
      return false
  }
@@ -211,7 +177,16 @@ index e1624f6..f9b5e56 100644
 +        return UserDefaults.standard.bool(forKey: visualKey)
 +    }
 +
-+    public static func deliver(account: Account, peerId: PeerId, authorId: PeerId, incoming: Bool, gift: StarGift, text: String?, entities: [MessageTextEntity]? = nil, hideName: Bool) {
++    private static var recentDeliveries: [String: TimeInterval] = [:]
++
++    @discardableResult
++    public static func deliver(account: Account, peerId: PeerId, authorId: PeerId, incoming: Bool, gift: StarGift, text: String?, entities: [MessageTextEntity]? = nil, hideName: Bool) -> Bool {
++        let key = "\(account.peerId.toInt64()):\(peerId.toInt64()):\(incoming)"
++        let now = Date().timeIntervalSince1970
++        if let previous = Self.recentDeliveries[key], now - previous < 4 {
++            return false
++        }
++        Self.recentDeliveries[key] = now
 +        let randomId = Int64.random(in: 1 ... Int64.max)
 +        let timestamp = Int32(clamping: Int64(Date().timeIntervalSince1970))
 +        let _ = (account.postbox.transaction { transaction -> Void in
@@ -227,6 +202,7 @@ index e1624f6..f9b5e56 100644
 +            let message = StoreMessage(peerId: peerId, namespace: Namespaces.Message.Local, customStableId: nil, globallyUniqueId: randomId, groupingKey: nil, threadId: nil, timestamp: timestamp, flags: flags, tags: [], globalTags: [], localTags: [], forwardInfo: nil, authorId: authorId, text: "", attributes: [], media: [action])
 +            let _ = transaction.addMessages([message], location: .Random)
 +        }).start()
++        return true
 +    }
 +
 +    public static func remember(sender: PeerId, recipient: PeerId, gift: StarGift, text: String?, hideName: Bool) {
@@ -245,27 +221,8 @@ index e1624f6..f9b5e56 100644
 +    }
 +
 +    public static func applyPendingIncoming(account: Account) {
-+        guard var payload = UserDefaults.standard.dictionary(forKey: pendingKey),
-+              let recipientRaw = payload["recipient"] as? String,
-+              let recipientValue = Int64(recipientRaw),
-+              account.peerId.toInt64() == recipientValue,
-+              let senderRaw = payload["sender"] as? String,
-+              let senderValue = Int64(senderRaw),
-+              let giftJSON = payload["gift"] as? String,
-+              let data = giftJSON.data(using: .utf8),
-+              let gift = try? JSONDecoder().decode(StarGift.self, from: data) else {
-+            return
-+        }
-+        var inserted = payload["inserted"] as? [String] ?? []
-+        let me = "\(account.peerId.toInt64())"
-+        if inserted.contains(me) {
-+            return
-+        }
-+        let text = payload["text"] as? String
-+        self.deliver(account: account, peerId: PeerId(senderValue), authorId: PeerId(senderValue), incoming: true, gift: gift, text: (text?.isEmpty == false) ? text : nil, hideName: payload["hideName"] as? Bool ?? false)
-+        inserted.append(me)
-+        payload["inserted"] = inserted
-+        UserDefaults.standard.set(payload, forKey: pendingKey)
++        let _ = account
++        UserDefaults.standard.removeObject(forKey: pendingKey)
 +    }
 +
 +    private static func parseCommand(text: String, entities: [MessageTextEntity]) -> (unique: Bool, query: String, caption: String?, captionEntities: [MessageTextEntity])? {
@@ -479,7 +436,7 @@ diff --git a/submodules/TelegramUI/Components/Gifts/GiftViewScreen/Sources/GiftV
 index 91c2a2b..fca0924 100644
 --- a/submodules/TelegramUI/Components/Gifts/GiftViewScreen/Sources/GiftViewBuyGift.swift
 +++ b/submodules/TelegramUI/Components/Gifts/GiftViewScreen/Sources/GiftViewBuyGift.swift
-@@ -27,6 +27,16 @@ public func buyStarGiftImpl(
+@@ -27,6 +27,15 @@ public func buyStarGiftImpl(
      let presentationData = context.sharedContext.currentPresentationData.with { $0 }
                      
      let action: (CurrencyAmount.Currency, GiftMessageScreen.Result, @escaping () -> Void) -> Void = { currency, message, beforeCompletion in
@@ -487,7 +444,6 @@ index 91c2a2b..fca0924 100644
 +            updateProgress(true)
 +            if recipientPeerId != context.account.peerId {
 +                GiftCam.deliver(account: context.account, peerId: recipientPeerId, authorId: context.account.peerId, incoming: false, gift: .unique(uniqueGift), text: message.text, hideName: message.hideName)
-+                GiftCam.remember(sender: context.account.peerId, recipient: recipientPeerId, gift: .unique(uniqueGift), text: message.text, hideName: message.hideName)
 +            }
 +            beforeCompletion()
 +            completion()
