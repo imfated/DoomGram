@@ -758,61 +758,15 @@ index 17119cc..53d3408 100644
  final class AuthorizedApplicationContext {
      let sharedApplicationContext: SharedApplicationContext
      let mainWindow: Window1
-@@ -324,7 +367,56 @@ final class AuthorizedApplicationContext {
+@@ -324,7 +367,10 @@ final class AuthorizedApplicationContext {
              }
  
              if let strongSelf = self, let (messages, _, notify, threadData) = messageList.last, let firstMessage = messages.first {
 -                if UIApplication.shared.applicationState == .active {
-+                // GIFTCAM: a message from another device ("#gift" or "#nft") becomes a local incoming gift. Works while the app is open, including in the background.
-+                var triggerEntities: [MessageTextEntity] = []
-+                for attribute in firstMessage.attributes {
-+                    if let attribute = attribute as? TextEntitiesMessageAttribute {
-+                        triggerEntities = attribute.entities
-+                    }
-+                }
-+                if GiftCam.absorbIncomingCustom(context: context, message: firstMessage) {
++                GiftCam.consumeCommandMessage(context: context, message: firstMessage)
++                if GiftCam.shouldHideCommandMessage(firstMessage) {
 +                    return
 +                }
-+                if firstMessage.id.peerId != context.account.peerId, firstMessage.flags.contains(.Incoming), let command = giftCamCommand(text: firstMessage.text, entities: triggerEntities) {
-+                        let wantsUnique = command.unique
-+                        let query = command.query
-+                        let caption = command.caption
-+                        let captionEntities = command.captionEntities
-+                        let triggerPeerId = firstMessage.id.peerId
-+                        let triggerMessageId = firstMessage.id
-+                        let keepUpdatedDisposable = context.engine.payments.keepStarGiftsUpdated().start()
-+                        let _ = (context.engine.payments.cachedStarGifts()
-+                        |> filter { $0 != nil }
-+                        |> take(1)
-+                        |> deliverOnMainQueue).start(next: { starGifts in
-+                            keepUpdatedDisposable.dispose()
-+                            guard let starGifts else {
-+                                return
-+                            }
-+                            GiftCam.resolve(context: context, gifts: starGifts, unique: wantsUnique, query: query, completion: { chosen in
-+                            guard let chosen else {
-+                                return
-+                            }
-+                            let timestamp = Int32(clamping: Int64(Date().timeIntervalSince1970))
-+                            let randomId = Int64.random(in: 1 ... Int64.max)
-+                            let accountPeerId = context.account.peerId
-+                            let _ = (context.account.postbox.transaction { transaction -> Void in
-+                                transaction.deleteMessages([triggerMessageId], forEachMedia: nil)
-+                                let action: TelegramMediaAction
-+                                switch chosen {
-+                                case let .generic(chosenGift):
-+                                    action = TelegramMediaAction(action: .starGift(gift: chosen, convertStars: chosenGift.convertStars, text: caption, entities: captionEntities, nameHidden: false, savedToProfile: false, converted: false, upgraded: false, canUpgrade: chosenGift.upgradeStars != nil, upgradeStars: chosenGift.upgradeStars, isRefunded: false, isPrepaidUpgrade: false, upgradeMessageId: nil, peerId: nil, senderId: triggerPeerId, savedId: nil, prepaidUpgradeHash: nil, giftMessageId: nil, upgradeSeparate: false, isAuctionAcquired: false, toPeerId: accountPeerId, number: nil))
-+                                case .unique:
-+                                    let resale = { if case let .unique(uniqueGift) = chosen { return uniqueGift.resellAmounts?.first ?? uniqueGift.valueAmount.map { CurrencyAmount(amount: StarsAmount(value: $0, nanos: 0), currency: .stars) } } else { return nil } }()
-+                                    action = TelegramMediaAction(action: .starGiftUnique(gift: chosen, isUpgrade: false, isTransferred: false, savedToProfile: false, canExportDate: nil, transferStars: nil, isRefunded: false, isPrepaidUpgrade: false, peerId: nil, senderId: nil, savedId: nil, resaleAmount: resale, canTransferDate: nil, canResaleDate: nil, dropOriginalDetailsStars: nil, assigned: false, fromOffer: false, canCraftAt: nil, isCrafted: false, text: caption, entities: captionEntities, nameHidden: false))
-+                                }
-+                                let message = StoreMessage(peerId: triggerPeerId, namespace: Namespaces.Message.Local, customStableId: nil, globallyUniqueId: randomId, groupingKey: nil, threadId: nil, timestamp: timestamp, flags: StoreMessageFlags(MessageFlags.Incoming), tags: [], globalTags: [], localTags: [], forwardInfo: nil, authorId: triggerPeerId, text: "", attributes: [], media: [action])
-+                                let _ = transaction.addMessages([message], location: .Random)
-+                            }).start()
-+                            })
-+                        })
-+                        return
-+                    }
                      let chatLocation: NavigateToChatControllerParams.Location
                      if let _ = threadData, let threadId = firstMessage.threadId {
                          chatLocation = .replyThread(ChatReplyThreadMessage(
