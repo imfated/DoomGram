@@ -74,7 +74,7 @@ index 38cbda4..fa89ee7 100644
 +    private let imageView = UIImageView()
 +    private var gifFrames: [(UIImage, TimeInterval)] = []
 +    private var gifIndex = 0
-+    private var gifTimer: Timer?
++    private var gifTimer: Foundation.Timer?
 +
 +    init(url: URL) {
 +        self.url = url
@@ -140,7 +140,7 @@ index 38cbda4..fa89ee7 100644
 +
 +    private func scheduleGif() {
 +        let delay = self.gifFrames[self.gifIndex].1
-+        self.gifTimer = Timer.scheduledTimer(withTimeInterval: max(delay, 0.02), repeats: false) { [weak self] _ in
++        self.gifTimer = Foundation.Timer.scheduledTimer(withTimeInterval: max(delay, 0.02), repeats: false) { [weak self] _ in
 +            guard let self else {
 +                return
 +            }
