@@ -2,7 +2,7 @@ diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentN
 index ed9b47d..31cde8c 100644
 --- a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/BUILD
 +++ b/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/BUILD
-@@ -36,6 +36,10 @@ swift_library(
+@@ -36,6 +36,11 @@ swift_library(
          "//submodules/TelegramUI/Components/PeerInfo/PeerInfoCoverComponent",
          "//submodules/TelegramUI/Components/Gifts/GiftItemComponent",
          "//submodules/TextSelectionNode",
@@ -10,6 +10,7 @@ index ed9b47d..31cde8c 100644
 +    ],
 +    sdk_frameworks = [
 +        "AVFoundation",
++        "ImageIO",
      ],
      visibility = [
          "//visibility:public",
@@ -17,12 +18,13 @@ diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentN
 index 38cbda4..fa89ee7 100644
 --- a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift
 +++ b/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift
-@@ -27,6 +27,8 @@ import InvisibleInkDustNode
+@@ -27,6 +27,9 @@ import InvisibleInkDustNode
  import PeerInfoCoverComponent
  import GiftItemComponent
  import TextSelectionNode
 +import GiftSetupScreen
 +import AVFoundation
++import ImageIO
  
  private func attributedServiceMessageString(theme: ChatPresentationThemeData, strings: PresentationStrings, nameDisplayOrder: PresentationPersonNameOrder, dateTimeFormat: PresentationDateTimeFormat, message: EngineMessage, accountPeerId: EnginePeer.Id) -> NSAttributedString? {
      return universalServiceMessageString(presentationData: (theme.theme, theme.wallpaper), strings: strings, nameDisplayOrder: nameDisplayOrder, dateTimeFormat: dateTimeFormat, message: message, accountPeerId: accountPeerId, forChatList: false, forForumOverview: false, forAdditionalServiceMessage: true)
@@ -64,15 +66,19 @@ index 38cbda4..fa89ee7 100644
                              
                              strongSelf.buttonNode.isHidden = buttonTitle.isEmpty
                              strongSelf.buttonNode.isUserInteractionEnabled = !item.presentationData.isPreview || isGiftMessageComposerPreview
-@@ -2086,3 +2094,71 @@ private func generateMaskImage() -> UIImage? {
+@@ -2086,3 +2094,145 @@ private func generateMaskImage() -> UIImage? {
          context.drawLinearGradient(gradient, start: CGPoint(x: 30.0, y: 0.0), end: CGPoint(x: size.width, y: 0.0), options: CGGradientDrawingOptions())
      })?.resizableImage(withCapInsets: UIEdgeInsets(top: 0.0, left: 0.0, bottom: 18.0, right: 70.0))
  }
 +
 +private final class GiftCamBearVideoView: UIView {
 +    let url: URL
-+    private let player = AVPlayer()
++    private var player: AVPlayer?
 +    private var endObserver: NSObjectProtocol?
++    private let imageView = UIImageView()
++    private var gifFrames: [(UIImage, TimeInterval)] = []
++    private var gifIndex = 0
++    private var gifTimer: Timer?
 +
 +    init(url: URL) {
 +        self.url = url
@@ -80,17 +86,32 @@ index 38cbda4..fa89ee7 100644
 +        self.isUserInteractionEnabled = false
 +        self.clipsToBounds = true
 +        self.layer.cornerRadius = 16.0
-+        let item = AVPlayerItem(url: url)
-+        self.player.replaceCurrentItem(with: item)
-+        self.player.isMuted = true
-+        if let layer = self.layer as? AVPlayerLayer {
-+            layer.player = self.player
-+            layer.videoGravity = .resizeAspect
-+        }
-+        let loopingPlayer = self.player
-+        self.endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak loopingPlayer] _ in
-+            loopingPlayer?.seek(to: .zero)
-+            loopingPlayer?.play()
++        self.imageView.contentMode = .scaleAspectFit
++        self.imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
++        let ext = url.pathExtension.lowercased()
++        if ["mp4", "mov", "m4v", "webm"].contains(ext) {
++            let item = AVPlayerItem(url: url)
++            let player = AVPlayer(playerItem: item)
++            player.isMuted = true
++            self.player = player
++            let playerLayer = AVPlayerLayer(player: player)
++            playerLayer.videoGravity = .resizeAspect
++            playerLayer.frame = self.bounds
++            self.layer.addSublayer(playerLayer)
++            self.endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak player] _ in
++                player?.seek(to: .zero)
++                player?.play()
++            }
++        } else {
++            self.addSubview(self.imageView)
++            if ext == "gif" {
++                self.gifFrames = Self.loadGif(url)
++            }
++            if let first = self.gifFrames.first {
++                self.imageView.image = first.0
++            } else {
++                self.imageView.image = UIImage(contentsOfFile: url.path)
++            }
 +        }
 +    }
 +
@@ -98,17 +119,72 @@ index 38cbda4..fa89ee7 100644
 +        fatalError()
 +    }
 +
-+    override class var layerClass: AnyClass {
-+        return AVPlayerLayer.self
-+    }
-+
-+    func play() {
-+        if self.player.timeControlStatus != .playing {
-+            self.player.play()
++    override func layoutSubviews() {
++        super.layoutSubviews()
++        self.imageView.frame = self.bounds
++        self.layer.sublayers?.forEach { layer in
++            if let playerLayer = layer as? AVPlayerLayer {
++                playerLayer.frame = self.bounds
++            }
 +        }
 +    }
 +
++    func play() {
++        if let player = self.player {
++            if player.timeControlStatus != .playing {
++                player.play()
++            }
++            return
++        }
++        guard self.gifFrames.count > 1, self.gifTimer == nil else {
++            return
++        }
++        self.scheduleGif()
++    }
++
++    private func scheduleGif() {
++        let delay = self.gifFrames[self.gifIndex].1
++        self.gifTimer = Timer.scheduledTimer(withTimeInterval: max(delay, 0.02), repeats: false) { [weak self] _ in
++            guard let self else {
++                return
++            }
++            self.gifIndex = (self.gifIndex + 1) % self.gifFrames.count
++            self.imageView.image = self.gifFrames[self.gifIndex].0
++            self.gifTimer = nil
++            self.scheduleGif()
++        }
++    }
++
++    private static func loadGif(_ url: URL) -> [(UIImage, TimeInterval)] {
++        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
++            return []
++        }
++        var frames: [(UIImage, TimeInterval)] = []
++        for index in 0 ..< CGImageSourceGetCount(source) {
++            guard let image = CGImageSourceCreateImageAtIndex(source, index, nil) else {
++                continue
++            }
++            frames.append((UIImage(cgImage: image), Self.gifDelay(source, index)))
++        }
++        return frames
++    }
++
++    private static func gifDelay(_ source: CGImageSource, _ index: Int) -> TimeInterval {
++        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) else {
++            return 0.1
++        }
++        let dict = properties as NSDictionary
++        guard let gif = dict.object(forKey: kCGImagePropertyGIFDictionary) as? NSDictionary else {
++            return 0.1
++        }
++        let unclamped = gif.object(forKey: kCGImagePropertyGIFUnclampedDelayTime) as? NSNumber
++        let clamped = gif.object(forKey: kCGImagePropertyGIFDelayTime) as? NSNumber
++        let value = unclamped?.doubleValue ?? clamped?.doubleValue ?? 0.1
++        return value > 0 ? value : 0.1
++    }
++
 +    deinit {
++        self.gifTimer?.invalidate()
 +        if let endObserver = self.endObserver {
 +            NotificationCenter.default.removeObserver(endObserver)
 +        }
@@ -141,9 +217,11 @@ new file mode 100644
 index 0000000..82b7754
 --- /dev/null
 +++ b/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftCamBears.swift
-@@ -0,0 +1,208 @@
+@@ -0,0 +1,222 @@
 +import Foundation
++import PhotosUI
 +import UIKit
++import UniformTypeIdentifiers
 +
 +public enum GiftCamBears {
 +    public static let bearGiftId: Int64 = 5170233102089322756
@@ -169,9 +247,9 @@ index 0000000..82b7754
 +    }
 +
 +    public static func present() {
-+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-+        let window = scene?.windows.first { $0.isKeyWindow } ?? scene?.windows.first
-+        var top = window?.rootViewController
++        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
++        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
++        var top = scene?.keyWindow?.rootViewController
 +        while let presented = top?.presentedViewController {
 +            top = presented
 +        }
@@ -248,7 +326,7 @@ index 0000000..82b7754
 +    }
 +}
 +
-+final class GiftCamBearsController: UITableViewController, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
++final class GiftCamBearsController: UITableViewController, PHPickerViewControllerDelegate {
 +    private var active: String?
 +    private var bears: [GiftCamBears.Bear] = []
 +
@@ -280,30 +358,42 @@ index 0000000..82b7754
 +    }
 +
 +    @objc private func addPressed() {
-+        let picker = UIImagePickerController()
-+        picker.sourceType = .photoLibrary
-+        picker.mediaTypes = ["public.movie"]
-+        picker.videoExportPreset = "AVAssetExportPresetHighestQuality"
++        var configuration = PHPickerConfiguration()
++        configuration.filter = .any(of: [.images, .videos])
++        configuration.selectionLimit = 1
++        let picker = PHPickerViewController(configuration: configuration)
 +        picker.delegate = self
 +        self.present(picker, animated: true)
 +    }
 +
-+    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
++    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
 +        picker.dismiss(animated: true)
-+    }
-+
-+    func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-+        let url = info[.mediaURL] as? URL
-+        picker.dismiss(animated: true) {
++        guard let provider = results.first?.itemProvider else {
++            return
++        }
++        let available = provider.registeredTypeIdentifiers.compactMap { UTType($0) }
++        let gif = available.first { $0.conforms(to: .gif) }
++        let movie = available.first { $0.conforms(to: .movie) }
++        let image = available.first { $0.conforms(to: .image) }
++        guard let type = gif ?? movie ?? image ?? available.first else {
++            return
++        }
++        _ = provider.loadFileRepresentation(for: type) { [weak self] url, _ in
 +            guard let url else {
 +                return
 +            }
-+            if GiftCamBears.addCopy(of: url) == nil {
-+                let alert = UIAlertController(title: "Не получилось сохранить видео", message: nil, preferredStyle: .alert)
-+                alert.addAction(UIAlertAction(title: "Ок", style: .default))
-+                self.present(alert, animated: true)
++            let saved = GiftCamBears.addCopy(of: url)
++            DispatchQueue.main.async {
++                guard let self else {
++                    return
++                }
++                if saved == nil {
++                    let alert = UIAlertController(title: "Не получилось сохранить файл", message: nil, preferredStyle: .alert)
++                    alert.addAction(UIAlertAction(title: "Ок", style: .default))
++                    self.present(alert, animated: true)
++                }
++                self.reload()
 +            }
-+            self.reload()
 +        }
 +    }
 +
@@ -315,7 +405,7 @@ index 0000000..82b7754
 +        let cell = tableView.dequeueReusableCell(withIdentifier: "bear") ?? UITableViewCell(style: .subtitle, reuseIdentifier: "bear")
 +        if self.bears.isEmpty {
 +            cell.textLabel?.text = "Нет своих мишек"
-+            cell.detailTextLabel?.text = "Добавь видео. Обычный мишка будет с этим роликом."
++            cell.detailTextLabel?.text = "Добавь видео, гифку или картинку. Обычный мишка будет с этим файлом."
 +            cell.accessoryType = .none
 +            cell.selectionStyle = .none
 +            return cell
@@ -350,6 +440,19 @@ index 0000000..82b7754
 +        self.reload()
 +    }
 +}
+diff --git a/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/BUILD b/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/BUILD
+--- a/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/BUILD
++++ b/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/BUILD
+@@ -56,5 +56,9 @@ swift_library(
+         "//submodules/UndoUI",
+     ],
++    sdk_frameworks = [
++        "PhotosUI",
++        "UniformTypeIdentifiers",
++    ],
+     visibility = [
+         "//visibility:public",
+     ],
 diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/BUILD b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/BUILD
 index bd33bb7..845a897 100644
 --- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/BUILD
