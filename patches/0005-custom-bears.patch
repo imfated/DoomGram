@@ -409,7 +409,7 @@ index 0000000..82b7754
 +        guard let type = gif ?? movie ?? image ?? available.first else {
 +            return
 +        }
-+        _ = provider.loadFileRepresentation(for: type) { [weak self] url, _ in
++        _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { [weak self] url, _ in
 +            guard let url else {
 +                return
 +            }
