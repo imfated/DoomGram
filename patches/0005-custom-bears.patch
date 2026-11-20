@@ -2,15 +2,11 @@ diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentN
 index ed9b47d..31cde8c 100644
 --- a/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/BUILD
 +++ b/submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/BUILD
-@@ -36,6 +36,11 @@ swift_library(
+@@ -36,6 +36,7 @@ swift_library(
          "//submodules/TelegramUI/Components/PeerInfo/PeerInfoCoverComponent",
          "//submodules/TelegramUI/Components/Gifts/GiftItemComponent",
          "//submodules/TextSelectionNode",
 +        "//submodules/TelegramUI/Components/Gifts/GiftSetupScreen",
-+    ],
-+    sdk_frameworks = [
-+        "AVFoundation",
-+        "ImageIO",
      ],
      visibility = [
          "//visibility:public",
@@ -476,19 +472,6 @@ index 0000000..82b7754
 +        self.reload()
 +    }
 +}
-diff --git a/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/BUILD b/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/BUILD
---- a/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/BUILD
-+++ b/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/BUILD
-@@ -56,5 +56,9 @@ swift_library(
-         "//submodules/UndoUI",
-     ],
-+    sdk_frameworks = [
-+        "PhotosUI",
-+        "UniformTypeIdentifiers",
-+    ],
-     visibility = [
-         "//visibility:public",
-     ],
 diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/BUILD b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/BUILD
 index bd33bb7..845a897 100644
 --- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/BUILD
