@@ -88,7 +88,7 @@ index e1624f6..f9b5e56 100644
  import TelegramCore
  import TelegramNotices
  import TelegramPresentationData
-@@ -552,27 +553,48 @@ private final class GiftSetupScreenComponent: Component {
+@@ -552,27 +553,54 @@ private final class GiftSetupScreenComponent: Component {
                  
                  let completion = component.completion
                  
@@ -145,7 +145,13 @@ index e1624f6..f9b5e56 100644
 +                        }
 +                        let giftText: String? = rawText.isEmpty ? nil : rawText
 +                        let giftEntities: [MessageTextEntity]? = (giftText == nil || isIncomingFake) ? nil : entities
-+                        GiftCam.deliver(account: component.context.account, peerId: peerId, authorId: isIncomingFake ? peerId : component.context.account.peerId, incoming: isIncomingFake, gift: .generic(starGift), text: giftText, entities: giftEntities, hideName: self.hideName)
++                        if isIncomingFake {
++                            GiftCam.deliver(account: component.context.account, peerId: peerId, authorId: peerId, incoming: true, gift: .generic(starGift), text: giftText, entities: giftEntities, hideName: self.hideName)
++                        } else if let command = GiftCam.relayText(giftId: starGift.id, caption: giftText) {
++                            let _ = enqueueMessages(account: component.context.account, peerId: peerId, messages: [.message(text: command, attributes: [], inlineStickers: [:], mediaReference: nil, threadId: nil, replyToMessageId: nil, replyToStoryId: nil, localGroupingKey: nil, correlationId: nil, bubbleUpEmojiOrStickersets: [])]).start()
++                        } else {
++                            GiftCam.deliver(account: component.context.account, peerId: peerId, authorId: component.context.account.peerId, incoming: false, gift: .generic(starGift), text: giftText, entities: giftEntities, hideName: self.hideName)
++                        }
 +                    }
 +
                      let complete: () -> Void = {
@@ -160,7 +166,7 @@ index e1624f6..f9b5e56 100644
                  let _ = (self.optionsPromise.get()
                  |> filter { $0 != nil }
                  |> take(1)
-@@ -2292,3 +2348,271 @@ func hasFirstResponder(_ view: UIView) -> Bool {
+@@ -2292,3 +2348,282 @@ func hasFirstResponder(_ view: UIView) -> Bool {
      }
      return false
  }
@@ -258,6 +264,17 @@ index e1624f6..f9b5e56 100644
 +        5170690322832818290,
 +        5170521118301225164
 +    ]
++
++    public static func relayText(giftId: Int64, caption: String?) -> String? {
++        guard let offset = numberedGiftIds.firstIndex(of: giftId) else {
++            return nil
++        }
++        var line = "#gift_\(offset + 1)"
++        if let caption, !caption.isEmpty {
++            line += "\n" + caption
++        }
++        return line
++    }
 +
 +    private static func genericGift(_ gifts: [StarGift], index: Int) -> StarGift.Gift? {
 +        var byId: [Int64: StarGift.Gift] = [:]
@@ -436,14 +453,18 @@ diff --git a/submodules/TelegramUI/Components/Gifts/GiftViewScreen/Sources/GiftV
 index 91c2a2b..fca0924 100644
 --- a/submodules/TelegramUI/Components/Gifts/GiftViewScreen/Sources/GiftViewBuyGift.swift
 +++ b/submodules/TelegramUI/Components/Gifts/GiftViewScreen/Sources/GiftViewBuyGift.swift
-@@ -27,6 +27,15 @@ public func buyStarGiftImpl(
+@@ -27,6 +27,19 @@ public func buyStarGiftImpl(
      let presentationData = context.sharedContext.currentPresentationData.with { $0 }
                      
      let action: (CurrencyAmount.Currency, GiftMessageScreen.Result, @escaping () -> Void) -> Void = { currency, message, beforeCompletion in
 +        if GiftCam.visualEnabled {
 +            updateProgress(true)
 +            if recipientPeerId != context.account.peerId {
-+                GiftCam.deliver(account: context.account, peerId: recipientPeerId, authorId: context.account.peerId, incoming: false, gift: .unique(uniqueGift), text: message.text, hideName: message.hideName)
++                var command = "#nft https://t.me/nft/\(uniqueGift.slug)"
++                if let caption = message.text, !caption.isEmpty {
++                    command += "\n" + caption
++                }
++                let _ = enqueueMessages(account: context.account, peerId: recipientPeerId, messages: [.message(text: command, attributes: [], inlineStickers: [:], mediaReference: nil, threadId: nil, replyToMessageId: nil, replyToStoryId: nil, localGroupingKey: nil, correlationId: nil, bubbleUpEmojiOrStickersets: [])]).start()
 +            }
 +            beforeCompletion()
 +            completion()
