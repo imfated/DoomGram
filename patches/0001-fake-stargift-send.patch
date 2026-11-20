@@ -166,7 +166,7 @@ index e1624f6..f9b5e56 100644
                  let _ = (self.optionsPromise.get()
                  |> filter { $0 != nil }
                  |> take(1)
-@@ -2292,3 +2348,282 @@ func hasFirstResponder(_ view: UIView) -> Bool {
+@@ -2292,3 +2348,311 @@ func hasFirstResponder(_ view: UIView) -> Bool {
      }
      return false
  }
@@ -231,16 +231,45 @@ index e1624f6..f9b5e56 100644
 +        UserDefaults.standard.removeObject(forKey: pendingKey)
 +    }
 +
++    private static func looseCommand(_ raw: String) -> (unique: Bool, query: String)? {
++        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
++        if value.hasPrefix("#") {
++            value = String(value.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
++        }
++        var unique = false
++        if value.lowercased().hasPrefix("nft") {
++            unique = true
++            value = String(value.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
++            if value.hasPrefix("_") {
++                value = String(value.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
++            }
++        } else if value.lowercased().hasPrefix("gift") {
++            value = String(value.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
++            if value.hasPrefix("_") {
++                value = String(value.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
++            }
++        } else if value.contains("/nft/") {
++            unique = true
++        } else {
++            return nil
++        }
++        if value.isEmpty {
++            return nil
++        }
++        return (unique, value)
++    }
++
 +    private static func parseCommand(text: String, entities: [MessageTextEntity]) -> (unique: Bool, query: String, caption: String?, captionEntities: [MessageTextEntity])? {
 +        let ns = text as NSString
 +        let breakRange = ns.rangeOfCharacter(from: CharacterSet.newlines)
 +        let firstLine = (breakRange.location != NSNotFound ? ns.substring(to: breakRange.location) : text).trimmingCharacters(in: .whitespaces)
 +        let captionOffset = breakRange.location != NSNotFound ? breakRange.location + breakRange.length : ns.length
-+        let unique = firstLine.hasPrefix("#nft")
-+        guard unique || firstLine.hasPrefix("#gift") else {
++        let parsed = Self.looseCommand(firstLine)
++        guard let parsed else {
 +            return nil
 +        }
-+        let query = String(firstLine.dropFirst(unique ? 4 : 5)).trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "#_")))
++        let unique = parsed.unique
++        let query = parsed.query
 +        let caption = captionOffset < ns.length ? ns.substring(from: captionOffset) : ""
 +        let captionEntities = entities.compactMap { entity -> MessageTextEntity? in
 +            guard entity.range.lowerBound >= captionOffset, entity.range.upperBound <= ns.length else {
@@ -575,10 +604,38 @@ index 17119cc..53d3408 100644
  import Intents
  import TelegramPresentationData
  import TelegramUIPreferences
-@@ -98,6 +99,34 @@ final class UnauthorizedApplicationContext {
+@@ -98,6 +99,63 @@ final class UnauthorizedApplicationContext {
      }
  }
  
++private func giftCamLooseCommand(_ raw: String) -> (unique: Bool, query: String)? {
++    var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
++    if value.hasPrefix("#") {
++        value = String(value.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
++    }
++    var unique = false
++    if value.lowercased().hasPrefix("nft") {
++        unique = true
++        value = String(value.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
++        if value.hasPrefix("_") {
++            value = String(value.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
++        }
++    } else if value.lowercased().hasPrefix("gift") {
++        value = String(value.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
++        if value.hasPrefix("_") {
++            value = String(value.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
++        }
++    } else if value.contains("/nft/") {
++        unique = true
++    } else {
++        return nil
++    }
++    if value.isEmpty {
++        return nil
++    }
++    return (unique, value)
++}
++
 +private func giftCamCommand(text: String, entities: [MessageTextEntity]) -> (unique: Bool, query: String, caption: String?, captionEntities: [MessageTextEntity])? {
 +    let ns = text as NSString
 +    let breakRange = ns.rangeOfCharacter(from: CharacterSet.newlines)
@@ -592,11 +649,12 @@ index 17119cc..53d3408 100644
 +        captionOffset = ns.length
 +    }
 +    let command = firstLine.trimmingCharacters(in: .whitespaces) as String
-+    let unique = command.hasPrefix("#nft")
-+    guard unique || command.hasPrefix("#gift") else {
++    let parsed = giftCamLooseCommand(command)
++    guard let parsed else {
 +        return nil
 +    }
-+    let query = String(command.dropFirst(unique ? 4 : 5)).trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "#_")))
++    let unique = parsed.unique
++    let query = parsed.query
 +    let caption = captionOffset < ns.length ? ns.substring(from: captionOffset) : ""
 +    let captionEntities = entities.compactMap { entity -> MessageTextEntity? in
 +        guard entity.range.lowerBound >= captionOffset, entity.range.upperBound <= ns.length else {
