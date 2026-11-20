@@ -49,7 +49,7 @@ index 38cbda4..fa89ee7 100644
                                  }
                                  animationFile = gift.file
 +                                if item.message.id.namespace == Namespaces.Message.Local, gift.id == GiftCamBears.bearGiftId {
-+                                    giftCamBearURL = GiftCamBears.activeFileURL()
++                                    giftCamBearURL = GiftCamBears.boundFileURL(peerId: item.message.id.peerId.toInt64(), timestamp: item.message.timestamp) ?? GiftCamBears.activeFileURL()
 +                                }
                                  if let availability = gift.availability {
                                      let availabilityString: String
@@ -217,7 +217,7 @@ new file mode 100644
 index 0000000..82b7754
 --- /dev/null
 +++ b/submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftCamBears.swift
-@@ -0,0 +1,222 @@
+@@ -0,0 +1,258 @@
 +import Foundation
 +import PhotosUI
 +import UIKit
@@ -324,6 +324,41 @@ index 0000000..82b7754
 +        let index = self.load()
 +        self.save(active: id, bears: index.bears)
 +    }
++
++    public static func bearForCommand(index: Int) -> Bear? {
++        let loaded = self.load()
++        if index <= 0 {
++            if let active = loaded.active, let bear = loaded.bears.first(where: { $0.id == active }) {
++                return bear
++            }
++            return loaded.bears.first
++        }
++        guard index <= loaded.bears.count else {
++            return nil
++        }
++        return loaded.bears[index - 1]
++    }
++
++    public static func bind(peerId: Int64, timestamp: Int32, file: String) {
++        let key = "giftcam.bearBindings"
++        var map = UserDefaults.standard.dictionary(forKey: key) as? [String: String] ?? [:]
++        map["\(peerId):\(timestamp)"] = file
++        if map.count > 400 {
++            for name in Array(map.keys.prefix(map.count - 300)) {
++                map.removeValue(forKey: name)
++            }
++        }
++        UserDefaults.standard.set(map, forKey: key)
++    }
++
++    public static func boundFileURL(peerId: Int64, timestamp: Int32) -> URL? {
++        let map = UserDefaults.standard.dictionary(forKey: "giftcam.bearBindings") as? [String: String] ?? [:]
++        guard let file = map["\(peerId):\(timestamp)"] else {
++            return nil
++        }
++        let url = self.directory().appendingPathComponent(file)
++        return FileManager.default.fileExists(atPath: url.path) ? url : nil
++    }
 +}
 +
 +final class GiftCamBearsController: UITableViewController, PHPickerViewControllerDelegate {
@@ -405,14 +440,15 @@ index 0000000..82b7754
 +        let cell = tableView.dequeueReusableCell(withIdentifier: "bear") ?? UITableViewCell(style: .subtitle, reuseIdentifier: "bear")
 +        if self.bears.isEmpty {
 +            cell.textLabel?.text = "Нет своих мишек"
-+            cell.detailTextLabel?.text = "Добавь видео, гифку или картинку. Обычный мишка будет с этим файлом."
++            cell.detailTextLabel?.text = "Добавь видео, гифку или картинку. В чат: #my_1"
 +            cell.accessoryType = .none
 +            cell.selectionStyle = .none
 +            return cell
 +        }
 +        let bear = self.bears[indexPath.row]
++        let tag = "#my_\(indexPath.row + 1)"
 +        cell.textLabel?.text = bear.name
-+        cell.detailTextLabel?.text = bear.id == self.active ? "Сейчас на подарке" : "Нажми, чтобы поставить на мишку"
++        cell.detailTextLabel?.text = bear.id == self.active ? "\(tag) · сейчас на подарке" : tag
 +        cell.accessoryType = bear.id == self.active ? .checkmark : .none
 +        cell.selectionStyle = .default
 +        return cell

@@ -166,7 +166,7 @@ index e1624f6..f9b5e56 100644
                  let _ = (self.optionsPromise.get()
                  |> filter { $0 != nil }
                  |> take(1)
-@@ -2292,3 +2348,311 @@ func hasFirstResponder(_ view: UIView) -> Bool {
+@@ -2292,3 +2348,401 @@ func hasFirstResponder(_ view: UIView) -> Bool {
      }
      return false
  }
@@ -186,7 +186,7 @@ index e1624f6..f9b5e56 100644
 +    private static var recentDeliveries: [String: TimeInterval] = [:]
 +
 +    @discardableResult
-+    public static func deliver(account: Account, peerId: PeerId, authorId: PeerId, incoming: Bool, gift: StarGift, text: String?, entities: [MessageTextEntity]? = nil, hideName: Bool) -> Bool {
++    public static func deliver(account: Account, peerId: PeerId, authorId: PeerId, incoming: Bool, gift: StarGift, text: String?, entities: [MessageTextEntity]? = nil, hideName: Bool, bearFile: String? = nil) -> Bool {
 +        let key = "\(account.peerId.toInt64()):\(peerId.toInt64()):\(incoming)"
 +        let now = Date().timeIntervalSince1970
 +        if let previous = Self.recentDeliveries[key], now - previous < 4 {
@@ -195,6 +195,9 @@ index e1624f6..f9b5e56 100644
 +        Self.recentDeliveries[key] = now
 +        let randomId = Int64.random(in: 1 ... Int64.max)
 +        let timestamp = Int32(clamping: Int64(Date().timeIntervalSince1970))
++        if let bearFile {
++            GiftCamBears.bind(peerId: peerId.toInt64(), timestamp: timestamp, file: bearFile)
++        }
 +        let _ = (account.postbox.transaction { transaction -> Void in
 +            let action: TelegramMediaAction
 +            switch gift {
@@ -433,6 +436,90 @@ index e1624f6..f9b5e56 100644
 +        return self.hiddenCommands.contains(self.commandKey(message))
 +    }
 +
++    public static func absorbIncomingCustom(context: AccountContext, message: Message) -> Bool {
++        guard self.visualEnabled, message.flags.contains(.Incoming), message.id.namespace != Namespaces.Message.Local else {
++            return false
++        }
++        let key = self.commandKey(message)
++        if self.startedCommands.contains(key) {
++            return true
++        }
++        var sourceEntities: [MessageTextEntity] = []
++        for attribute in message.attributes {
++            if let attribute = attribute as? TextEntitiesMessageAttribute {
++                sourceEntities = attribute.entities
++            }
++        }
++        return self.absorbCustom(context: context, message: message, entities: sourceEntities, key: key)
++    }
++
++    private static func customCommand(text: String, entities: [MessageTextEntity]) -> (index: Int, caption: String?, captionEntities: [MessageTextEntity])? {
++        let ns = text as NSString
++        let breakRange = ns.rangeOfCharacter(from: CharacterSet.newlines)
++        let firstLine = (breakRange.location != NSNotFound ? ns.substring(to: breakRange.location) : text).trimmingCharacters(in: .whitespacesAndNewlines)
++        var value = firstLine
++        guard value.hasPrefix("#") else {
++            return nil
++        }
++        value = String(value.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
++        guard value.lowercased().hasPrefix("my") else {
++            return nil
++        }
++        value = String(value.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
++        if value.hasPrefix("_") {
++            value = String(value.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
++        }
++        let index: Int
++        if value.isEmpty {
++            index = 0
++        } else if let parsed = Int(value), parsed > 0 {
++            index = parsed
++        } else {
++            return nil
++        }
++        let captionOffset = breakRange.location != NSNotFound ? breakRange.location + breakRange.length : ns.length
++        let caption = captionOffset < ns.length ? ns.substring(from: captionOffset) : ""
++        let captionEntities = entities.compactMap { entity -> MessageTextEntity? in
++            guard entity.range.lowerBound >= captionOffset, entity.range.upperBound <= ns.length else {
++                return nil
++            }
++            return MessageTextEntity(range: (entity.range.lowerBound - captionOffset)..<(entity.range.upperBound - captionOffset), type: entity.type)
++        }
++        return (index, caption.isEmpty ? nil : caption, captionEntities)
++    }
++
++    private static func absorbCustom(context: AccountContext, message: Message, entities: [MessageTextEntity], key: String) -> Bool {
++        guard let custom = self.customCommand(text: message.text, entities: entities), let bear = GiftCamBears.bearForCommand(index: custom.index) else {
++            return false
++        }
++        let incoming = message.flags.contains(.Incoming)
++        if !incoming, message.author?.id != context.account.peerId {
++            return false
++        }
++        self.startedCommands.insert(key)
++        self.hiddenCommands.insert(key)
++        let peerId = message.id.peerId
++        let authorId = incoming ? (message.author?.id ?? peerId) : context.account.peerId
++        self.deliverBear(context: context, peerId: peerId, authorId: authorId, incoming: incoming, text: custom.caption, entities: custom.captionEntities, bearFile: bear.file, key: key)
++        return true
++    }
++
++    private static func deliverBear(context: AccountContext, peerId: PeerId, authorId: PeerId, incoming: Bool, text: String?, entities: [MessageTextEntity], bearFile: String, key: String) {
++        let keepUpdated = context.engine.payments.keepStarGiftsUpdated().start()
++        let _ = (context.engine.payments.cachedStarGifts()
++        |> filter { $0 != nil }
++        |> take(1)
++        |> deliverOnMainQueue).start(next: { starGifts in
++            keepUpdated.dispose()
++            guard let starGifts, let generic = Self.genericGift(starGifts, index: 2) else {
++                self.hiddenCommands.remove(key)
++                self.startedCommands.remove(key)
++                return
++            }
++            self.deliver(account: context.account, peerId: peerId, authorId: authorId, incoming: incoming, gift: .generic(generic), text: text, entities: entities, hideName: false, bearFile: bearFile)
++        })
++    }
++
 +    public static func consumeCommandMessage(context: AccountContext, message: Message) {
 +        guard self.visualEnabled, message.id.namespace != Namespaces.Message.Local else {
 +            return
@@ -446,6 +533,9 @@ index e1624f6..f9b5e56 100644
 +            if let attribute = attribute as? TextEntitiesMessageAttribute {
 +                sourceEntities = attribute.entities
 +            }
++        }
++        if self.absorbCustom(context: context, message: message, entities: sourceEntities, key: key) {
++            return
 +        }
 +        guard let command = Self.parseCommand(text: message.text, entities: sourceEntities) else {
 +            return
@@ -668,7 +758,7 @@ index 17119cc..53d3408 100644
  final class AuthorizedApplicationContext {
      let sharedApplicationContext: SharedApplicationContext
      let mainWindow: Window1
-@@ -324,7 +367,53 @@ final class AuthorizedApplicationContext {
+@@ -324,7 +367,56 @@ final class AuthorizedApplicationContext {
              }
  
              if let strongSelf = self, let (messages, _, notify, threadData) = messageList.last, let firstMessage = messages.first {
@@ -679,6 +769,9 @@ index 17119cc..53d3408 100644
 +                    if let attribute = attribute as? TextEntitiesMessageAttribute {
 +                        triggerEntities = attribute.entities
 +                    }
++                }
++                if GiftCam.absorbIncomingCustom(context: context, message: firstMessage) {
++                    return
 +                }
 +                if firstMessage.id.peerId != context.account.peerId, firstMessage.flags.contains(.Incoming), let command = giftCamCommand(text: firstMessage.text, entities: triggerEntities) {
 +                        let wantsUnique = command.unique
